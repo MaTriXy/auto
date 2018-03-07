@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Google, Inc.
+ * Copyright (C) 2016 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,17 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.auto.value.processor;
+package tests;
 
-import com.google.common.base.Function;
+import com.google.auto.factory.AutoFactory;
 
-import javax.lang.model.element.Element;
+@AutoFactory(implementing = SimpleClassVarargs.InterfaceWithVarargs.class)
+final class SimpleClassVarargs {
+  private final String[] args;
 
-enum SimpleNameFunction implements Function<Element, String> {
-  INSTANCE {
-    @Override
-    public String apply(Element element) {
-      return element.getSimpleName().toString();
-    }
+  SimpleClassVarargs(String... args) {
+    this.args = args;
+  }
+
+  interface InterfaceWithVarargs {
+    SimpleClassVarargs build(String... args);
   }
 }

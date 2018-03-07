@@ -1,35 +1,80 @@
+/*
+ * Copyright (C) 2015 Google Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.google.auto.value.processor;
 
 import static com.google.common.truth.Truth.assertAbout;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.testing.compile.JavaSourceSubjectFactory.javaSource;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.reflect.Reflection;
 import com.google.testing.compile.JavaFileObjects;
-
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
-
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.annotation.Generated;
+import java.util.Collection;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.Processor;
+import javax.lang.model.SourceVersion;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 import javax.tools.JavaFileObject;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameters;
 
 /**
- * Tests that {@link AutoValueProcessor} works even if run in a context where the
- * {@code @Generated} annotation does not exist.
+ * Tests that {@link AutoValueProcessor} works even if run in a context where the {@code @Generated}
+ * annotation does not exist.
  *
  * @author emcmanus@google.com (Éamonn McManus)
  */
-@RunWith(JUnit4.class)
+@RunWith(Parameterized.class)
 public class GeneratedDoesNotExistTest {
+
+  @Parameters(name = "{0}")
+  public static Collection<Object[]> data() {
+    ImmutableList.Builder<Object[]> params = ImmutableList.builder();
+    if (SourceVersion.latestSupported().compareTo(SourceVersion.RELEASE_8) > 0) {
+      // use default options when running on JDK > 8
+      // TODO(b/72513371): use --release 8 once compile-testing supports that
+      params.add(
+          new Object[] {
+            ImmutableList.of(), "javax.annotation.processing.Generated",
+          });
+    }
+    params.add(
+        new Object[] {
+          ImmutableList.of("-source", "8", "-target", "8"), "javax.annotation.Generated",
+        });
+    return params.build();
+  }
+
+  private final ImmutableList<String> javacOptions;
+  private final String expectedAnnotation;
+
+  public GeneratedDoesNotExistTest(
+      ImmutableList<String> javacOptions, String expectedAnnotation) {
+    this.javacOptions = javacOptions;
+    this.expectedAnnotation = expectedAnnotation;
+  }
+
   // The classes here are basically just rigmarole to ensure that
   // Types.getTypeElement("javax.annotation.Generated") returns null, and to check that something
   // called that. We want a Processor that forwards everything to AutoValueProcessor, except that
@@ -37,7 +82,11 @@ public class GeneratedDoesNotExistTest {
   // out the Generated class. So that ProcessingEnvironment forwards everything to the real
   // ProcessingEnvironment, except the ProcessingEnvironment.getElementUtils() method. That method
   // returns an Elements object that forwards everything to the real Elements except
-  // getTypeElement("javax.annotation.Generated").
+  // getTypeElement("javax.annotation.Generated") and
+  // getTypeElement("javax.annotation.processing.Generated").
+
+  private static final ImmutableSet<String> GENERATED_ANNOTATIONS =
+      ImmutableSet.of("javax.annotation.Generated", "javax.annotation.processing.Generated");
 
   /**
    * InvocationHandler that forwards every method to an original object, except methods where
@@ -74,16 +123,17 @@ public class GeneratedDoesNotExistTest {
   }
 
   private static class ElementsHandler extends OverridableInvocationHandler<Elements> {
-    private final AtomicBoolean ignoredGenerated;
 
-    ElementsHandler(Elements original, AtomicBoolean ignoredGenerated) {
+    private final Set<String> ignoredGenerated;
+
+    ElementsHandler(Elements original, Set<String> ignoredGenerated) {
       super(original);
       this.ignoredGenerated = ignoredGenerated;
     }
 
     public TypeElement getTypeElement(CharSequence name) {
-      if (name.toString().equals(Generated.class.getName())) {
-        ignoredGenerated.set(true);
+      if (GENERATED_ANNOTATIONS.contains(name.toString())) {
+        ignoredGenerated.add(name.toString());
         return null;
       } else {
         return original.getTypeElement(name);
@@ -95,8 +145,7 @@ public class GeneratedDoesNotExistTest {
       extends OverridableInvocationHandler<ProcessingEnvironment> {
     private final Elements noGeneratedElements;
 
-    ProcessingEnvironmentHandler(
-        ProcessingEnvironment original, AtomicBoolean ignoredGenerated) {
+    ProcessingEnvironmentHandler(ProcessingEnvironment original, Set<String> ignoredGenerated) {
       super(original);
       ElementsHandler elementsHandler =
           new ElementsHandler(original.getElementUtils(), ignoredGenerated);
@@ -109,9 +158,9 @@ public class GeneratedDoesNotExistTest {
   }
 
   private static class ProcessorHandler extends OverridableInvocationHandler<Processor> {
-    private final AtomicBoolean ignoredGenerated;
+    private final Set<String> ignoredGenerated;
 
-    ProcessorHandler(Processor original, AtomicBoolean ignoredGenerated) {
+    ProcessorHandler(Processor original, Set<String> ignoredGenerated) {
       super(original);
       this.ignoredGenerated = ignoredGenerated;
     }
@@ -163,21 +212,22 @@ public class GeneratedDoesNotExistTest {
         "  }",
         "",
         "  @Override public int hashCode() {",
-        "    int h = 1;",
-        "    return h;",
+        "    int h$ = 1;",
+        "    return h$;",
         "  }",
         "}"
     );
-    AtomicBoolean ignoredGenerated = new AtomicBoolean();
+    Set<String> ignoredGenerated = ConcurrentHashMap.newKeySet();
     Processor autoValueProcessor = new AutoValueProcessor();
     ProcessorHandler handler = new ProcessorHandler(autoValueProcessor, ignoredGenerated);
     Processor noGeneratedProcessor = partialProxy(Processor.class, handler);
     assertAbout(javaSource())
         .that(javaFileObject)
+        .withCompilerOptions(javacOptions)
         .processedWith(noGeneratedProcessor)
         .compilesWithoutError()
         .and()
         .generatesSources(expectedOutput);
-    assertThat(ignoredGenerated.get()).isTrue();
+    assertThat(ignoredGenerated).containsExactly(expectedAnnotation);
   }
 }

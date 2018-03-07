@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Guava Authors
+ * Copyright (C) 2015 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 package com.google.auto.value.client;
-
-import java.lang.Override;
-import java.lang.SuppressWarnings;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.annotations.GwtCompatible;

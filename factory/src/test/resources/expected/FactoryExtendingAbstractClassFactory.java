@@ -15,13 +15,17 @@
  */
 package tests;
 
-import javax.annotation.Generated;
+import javax.annotation.processing.Generated;
 import javax.inject.Inject;
 
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
-final class FactoryExtendingAbstractClassFactory extends FactoryExtendingAbstractClass.AbstractFactory {
+@Generated(
+  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+  comments = "https://github.com/google/auto/tree/master/factory"
+  )
+final class FactoryExtendingAbstractClassFactory
+    extends FactoryExtendingAbstractClass.AbstractFactory {
   @Inject FactoryExtendingAbstractClassFactory() {}
-  
+
   FactoryExtendingAbstractClass create() {
     return new FactoryExtendingAbstractClass();
   }

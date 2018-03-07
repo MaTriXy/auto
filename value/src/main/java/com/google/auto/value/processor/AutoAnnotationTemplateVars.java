@@ -16,10 +16,8 @@
 package com.google.auto.value.processor;
 
 import com.google.auto.value.processor.escapevelocity.Template;
-
 import java.util.Map;
 import java.util.Set;
-import java.util.SortedSet;
 
 /**
  * The variables to substitute into the autoannotation.vm template.
@@ -40,17 +38,9 @@ class AutoAnnotationTemplateVars extends TemplateVars {
   Map<String, AutoAnnotationProcessor.Parameter> params;
 
   /**
-   * The fully-qualified names of the classes to be imported in the generated class.
-   */
-  SortedSet<String> imports;
-
-  /**
-   * The spelling of the javax.annotation.Generated class: Generated or javax.annotation.Generated.
+   * The encoded form of the {@code Generated} class, or empty if it is not available.
    */
   String generated;
-
-  /** The spelling of the java.util.Arrays class: Arrays or java.util.Arrays. */
-  String arrays;
 
   /**
    * The package of the class containing the {@code @AutoAnnotation} annotation, which is also the
@@ -84,6 +74,17 @@ class AutoAnnotationTemplateVars extends TemplateVars {
    * {@code clone()} to make a copy of an array.
    */
   Boolean gwtCompatible;
+
+  /**
+   * The names of members that are defaulted (not mentioned) in this {@code @AutoAnnotation},
+   * and whose hash codes are invariable.
+   */
+  Set<String> invariableHashes;
+
+  /**
+   * The sum of the hash code contributions from the members in {@link #invariableHashes}.
+   */
+  Integer invariableHashSum;
 
   private static final Template TEMPLATE = parsedTemplateForResource("autoannotation.vm");
 

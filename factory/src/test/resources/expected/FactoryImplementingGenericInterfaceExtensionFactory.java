@@ -15,25 +15,36 @@
  */
 package tests;
 
-import javax.annotation.Generated;
+import javax.annotation.processing.Generated;
 import javax.inject.Inject;
 import javax.inject.Provider;
 
-import tests.FactoryImplementingGenericInterfaceExtension.MyFactory;
-
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
+@Generated(
+  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+  comments = "https://github.com/google/auto/tree/master/factory"
+  )
 final class FactoryImplementingGenericInterfaceExtensionFactory
-    implements MyFactory {
+    implements FactoryImplementingGenericInterfaceExtension.MyFactory {
   private final Provider<String> sProvider;
   @Inject
   FactoryImplementingGenericInterfaceExtensionFactory(Provider<String> sProvider) {
-    this.sProvider = sProvider;
+    this.sProvider = checkNotNull(sProvider, 1);
   }
   FactoryImplementingGenericInterfaceExtension create(Integer i) {
-    return new FactoryImplementingGenericInterfaceExtension(sProvider.get(), i);
+    return new FactoryImplementingGenericInterfaceExtension(
+        checkNotNull(sProvider.get(), 1), checkNotNull(i, 2));
   }
   @Override
   public FactoryImplementingGenericInterfaceExtension make(Integer arg) {
     return create(arg);
+  }
+
+  private static <T> T checkNotNull(T reference, int argumentIndex) {
+    if (reference == null) {
+      throw new NullPointerException(
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
+              + argumentIndex);
+    }
+    return reference;
   }
 }

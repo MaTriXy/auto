@@ -15,11 +15,14 @@
  */
 package tests;
 
-import javax.annotation.Generated;
+import javax.annotation.processing.Generated;
 import javax.inject.Inject;
 import javax.inject.Provider;
 
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
+@Generated(
+  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+  comments = "https://github.com/google/auto/tree/master/factory"
+  )
 final class SimpleClassProvidedProviderDepsFactory {
   private final Provider<String> providedDepAProvider;
   private final Provider<String> providedDepBProvider;
@@ -28,11 +31,20 @@ final class SimpleClassProvidedProviderDepsFactory {
   SimpleClassProvidedProviderDepsFactory(
       @AQualifier Provider<String> providedDepAProvider,
       @BQualifier Provider<String> providedDepBProvider) {
-    this.providedDepAProvider = providedDepAProvider;
-    this.providedDepBProvider = providedDepBProvider;
+    this.providedDepAProvider = checkNotNull(providedDepAProvider, 1);
+    this.providedDepBProvider = checkNotNull(providedDepBProvider, 2);
   }
 
   SimpleClassProvidedProviderDeps create() {
     return new SimpleClassProvidedProviderDeps(providedDepAProvider, providedDepBProvider);
+  }
+
+  private static <T> T checkNotNull(T reference, int argumentIndex) {
+    if (reference == null) {
+      throw new NullPointerException(
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
+              + argumentIndex);
+    }
+    return reference;
   }
 }

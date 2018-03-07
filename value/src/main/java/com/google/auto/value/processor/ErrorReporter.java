@@ -15,8 +15,6 @@
  */
 package com.google.auto.value.processor;
 
-import com.google.auto.value.AutoValue;
-
 import javax.annotation.processing.Messager;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Element;
@@ -30,9 +28,20 @@ import javax.tools.Diagnostic;
  */
 class ErrorReporter {
   private final Messager messager;
+  private boolean anyErrors;
 
   ErrorReporter(ProcessingEnvironment processingEnv) {
     this.messager = processingEnv.getMessager();
+  }
+
+  /**
+   * Issue a compilation note.
+   *
+   * @param msg the text of the note
+   * @param e the element to which it pertains
+   */
+  void reportNote(String msg, Element e) {
+    messager.printMessage(Diagnostic.Kind.NOTE, msg, e);
   }
 
   /**
@@ -56,6 +65,7 @@ class ErrorReporter {
    */
   void reportError(String msg, Element e) {
     messager.printMessage(Diagnostic.Kind.ERROR, msg, e);
+    anyErrors = true;
   }
 
   /**
@@ -68,5 +78,14 @@ class ErrorReporter {
   void abortWithError(String msg, Element e) {
     reportError(msg, e);
     throw new AbortProcessingException();
+  }
+
+  /**
+   * Abandon the processing of this class if any errors have been output.
+   */
+  void abortIfAnyError() {
+    if (anyErrors) {
+      throw new AbortProcessingException();
+    }
   }
 }

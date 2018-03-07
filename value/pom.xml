@@ -21,12 +21,12 @@
   <parent>
     <groupId>com.google.auto</groupId>
     <artifactId>auto-parent</artifactId>
-    <version>3</version>
+    <version>6</version>
   </parent>
 
   <groupId>com.google.auto.value</groupId>
   <artifactId>auto-value</artifactId>
-  <version>1.2-SNAPSHOT</version>
+  <version>HEAD-SNAPSHOT</version>
   <name>AutoValue</name>
   <description>
     Immutable value-type code generation for Java 1.6+.
@@ -43,52 +43,45 @@
     <dependency>
       <groupId>com.google.auto</groupId>
       <artifactId>auto-common</artifactId>
-      <version>1.0-SNAPSHOT</version>
+      <version>0.10</version>
     </dependency>
     <dependency>
       <groupId>com.google.auto.service</groupId>
       <artifactId>auto-service</artifactId>
-      <version>1.0-rc2</version>
+      <version>1.0-rc4</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>18.0</version>
     </dependency>
     <dependency>
-      <groupId>org.ow2.asm</groupId>
-      <artifactId>asm</artifactId>
-      <version>4.1</version>
+      <groupId>com.squareup</groupId>
+      <artifactId>javapoet</artifactId>
     </dependency>
     <!-- test dependencies -->
     <dependency>
       <groupId>org.apache.velocity</groupId>
       <artifactId>velocity</artifactId>
-      <version>1.7</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava-testlib</artifactId>
-      <version>17.0</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.google.testing.compile</groupId>
-      <artifactId>compile-testing</artifactId>
-      <version>0.6</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>4.11</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.google.truth</groupId>
       <artifactId>truth</artifactId>
-      <version>0.25</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.testing.compile</groupId>
+      <artifactId>compile-testing</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -97,41 +90,27 @@
     <resources>
       <resource>
         <directory>src/main/java</directory>
+        <includes>
+          <include>**/*.vm</include>
+        </includes>
       </resource>
     </resources>
     <plugins>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
-        <version>2.5</version>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-invoker-plugin</artifactId>
-        <configuration>
-          <addTestClassPath>true</addTestClassPath>
-          <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
-          <filterProperties>
-            <auto.version>${project.version}</auto.version>
-          </filterProperties>
-          <pomIncludes>
-            <pomInclude>*/pom.xml</pomInclude>
-          </pomIncludes>
-          <streamLogs>true</streamLogs>
-        </configuration>
-        <executions>
-          <execution>
-            <id>integration-test</id>
-            <goals>
-              <goal>install</goal>
-              <goal>run</goal>
-            </goals>
-          </execution>
-        </executions>
       </plugin>
       <plugin>
         <groupId>org.immutables.tools</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3</version>
         <executions>
           <execution>
             <phase>package</phase>
@@ -140,6 +119,11 @@
             </goals>
             <configuration>
               <minimizeJar>true</minimizeJar>
+              <artifactSet>
+                <excludes>
+                  <exclude>com.google.code.findbugs:jsr305</exclude>
+                </excludes>
+              </artifactSet>
               <relocations>
                 <relocation>
                   <pattern>org.objectweb</pattern>
@@ -147,10 +131,14 @@
                 </relocation>
                 <relocation>
                   <pattern>com.google</pattern>
-                  <shadedPattern>autovalue.shaded.com.google.common$</shadedPattern>
+                  <shadedPattern>autovalue.shaded.com.google$</shadedPattern>
                   <excludes>
                     <exclude>com.google.auto.value.**</exclude>
                   </excludes>
+                </relocation>
+                <relocation>
+                  <pattern>com.squareup.javapoet</pattern>
+                  <shadedPattern>autovalue.shaded.com.squareup.javapoet$</shadedPattern>
                 </relocation>
               </relocations>
             </configuration>
@@ -159,4 +147,15 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>disable-java8-doclint</id>
+      <activation>
+        <jdk>[1.8,)</jdk>
+      </activation>
+      <properties>
+        <additionalparam>-Xdoclint:none</additionalparam>
+      </properties>
+    </profile>
+  </profiles>
 </project>

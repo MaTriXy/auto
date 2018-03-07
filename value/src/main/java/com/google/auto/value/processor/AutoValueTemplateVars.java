@@ -15,13 +15,13 @@
  */
 package com.google.auto.value.processor;
 
+import com.google.auto.value.processor.PropertyBuilderClassifier.PropertyBuilder;
 import com.google.auto.value.processor.escapevelocity.Template;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
-
+import java.util.Optional;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.util.Types;
 
@@ -45,26 +45,42 @@ class AutoValueTemplateVars extends TemplateVars {
   /** Whether to generate a toString() method. */
   Boolean toString;
 
+  /**
+   * A string representing the parameter type declaration of the equals(Object) method, including
+   * any annotations. If {@link #equals} is false, this field is ignored (but it must still be
+   * non-null).
+   */
+  String equalsParameterType;
+
+  /**
+   * Whether to include identifiers in strings in the generated code. If false, exception messages
+   * will not mention properties by name, and {@code toString()} will include neither property
+   * names nor the name of the {@code @AutoValue} class.
+   */
+  Boolean identifiers;
+
   /** The type utilities returned by {@link ProcessingEnvironment#getTypeUtils()}. */
   Types types;
 
-  /** The fully-qualified names of the classes to be imported in the generated class. */
-  ImmutableSortedSet<String> imports;
-
   /**
-   * The spelling of the javax.annotation.Generated class: Generated or javax.annotation.Generated.
+   * The encoding of the {@code Generated} class. Empty if the class is not available.
    */
   String generated;
 
-  /** The spelling of the java.util.Arrays class: Arrays or java.util.Arrays. */
-  String arrays;
-
   /**
-   * The full spelling of the {@code @GwtCompatible} annotation to add to this class, or an empty
-   * string if there is none. A non-empty value might look something like
-   * {@code "@com.google.common.annotations.GwtCompatible(serializable = true)"}.
+   * The encoding of the {@code @GwtCompatible} annotation to add to this class, or an empty
+   * string if there is none. A non-empty value will look something like
+   * {@code "@`com.google.common.annotations.GwtCompatible`(serializable = true)"}, where the
+   * {@code ``} represent the encoding used by {@link TypeEncoder}.
    */
   String gwtCompatibleAnnotation;
+
+  /**
+   * The full spelling of any annotation to add to this class, or an empty list if there are none. A
+   * non-empty value might look something like {@code
+   * "@com.google.common.annotations.GwtCompatible(serializable = true)"}.
+   */
+  ImmutableList<String> annotations;
 
   /** The text of the serialVersionUID constant, or empty if there is none. */
   String serialVersionUID;
@@ -136,10 +152,8 @@ class AutoValueTemplateVars extends TemplateVars {
    */
   Boolean builderIsInterface = false;
 
-  /**
-   * The simple name of the builder's build method, often {@code "build"}.
-   */
-  String buildMethodName = "";
+  /** The builder's build method, often {@code "build"}. */
+  Optional<SimpleMethod> buildMethod = Optional.empty();
 
   /**
    * A multimap from property names (like foo) to the corresponding setters. The same property may
@@ -151,28 +165,34 @@ class AutoValueTemplateVars extends TemplateVars {
   /**
    * A map from property names to information about the associated property builder. A property
    * called foo (defined by a method foo() or getFoo()) can have a property builder called
-   * fooBuilder(). The type of foo must be an immutable Guava type, like ImmutableSet, and
-   * fooBuilder() must return the corresponding builder, like ImmutableSet.Builder.
+   * fooBuilder(). The type of foo must be a type that has an associated builder following
+   * certain conventions. Guava immutable types such as ImmutableList follow those conventions,
+   * as do many {@code @AutoValue} types.
    */
-  ImmutableMap<String, BuilderSpec.PropertyBuilder> builderPropertyBuilders =
+  ImmutableMap<String, PropertyBuilder> builderPropertyBuilders =
       ImmutableMap.of();
 
   /**
-   * Properties that are required to be set. A property must be set explicitly unless it is either
-   * {@code @Nullable} (in which case it defaults to null), or has a property-builder method
-   * (in which case it defaults to empty).
+   * Properties that are required to be set. A property must be set explicitly except in the
+   * following cases:
+   * <ul>
+   * <li>it is {@code @Nullable} (in which case it defaults to null);
+   * <li>it is {@code Optional} (in which case it defaults to empty);
+   * <li>it has a property-builder method (in which case it defaults to empty).
+   * </ul>
    */
   ImmutableSet<AutoValueProcessor.Property> builderRequiredProperties = ImmutableSet.of();
 
   /**
-   * Properties that have getters in the builder.
+   * A map from property names to information about the associated property getter. A property
+   * called foo (defined by a method foo() or getFoo()) can have a property getter method with
+   * the same name (foo() or getFoo()) and either the same return type or an Optional
+   * (or OptionalInt, etc) wrapping it.
    */
-  ImmutableSet<String> propertiesWithBuilderGetters = ImmutableSet.of();
+  ImmutableMap<String, BuilderSpec.PropertyGetter> builderGetters = ImmutableMap.of();
 
-  /**
-   * The names of any {@code toBuilder()} methods, that is methods that return the builder type.
-   */
-  ImmutableList<String> toBuilderMethods;
+  /** Any {@code toBuilder()} methods, that is methods that return the builder type. */
+  ImmutableList<SimpleMethod> toBuilderMethods;
 
   private static final Template TEMPLATE = parsedTemplateForResource("autovalue.vm");
 

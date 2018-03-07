@@ -13,12 +13,34 @@
  */
 package com.google.auto.value;
 
+import java.lang.annotation.Annotation;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-@Retention(RetentionPolicy.SOURCE)
+/**
+ * Specifies that <a href="https://github.com/google/auto/tree/master/value">AutoValue</a> should
+ * generate an implementation class for the annotated abstract class, implementing the standard
+ * {@link Object} methods like {@link Object#equals equals} to have conventional value semantics. A
+ * simple example: <pre>
+ *
+ *   &#64;AutoValue
+ *   abstract class Person {
+ *     static Person create(String name, int id) {
+ *       return new AutoValue_Person(name, id);
+ *     }
+ *
+ *     abstract String name();
+ *     abstract int id();
+ *   }</pre>
+ *
+ * @see <a href="https://github.com/google/auto/tree/master/value">AutoValue User's Guide</a>
+ *
+ * @author Éamonn McManus
+ * @author Kevin Bourrillion
+ */
+@Retention(RetentionPolicy.CLASS)
 @Target(ElementType.TYPE)
 public @interface AutoValue {
 
@@ -47,7 +69,46 @@ public @interface AutoValue {
    *
    * @author Éamonn McManus
    */
-  @Retention(RetentionPolicy.SOURCE)
+  @Retention(RetentionPolicy.CLASS)
   @Target(ElementType.TYPE)
   public @interface Builder {}
+
+  /**
+   * Specifies that AutoValue should copy any annotations from the annotated element to the
+   * generated class. This annotation supports classes and methods.
+   *
+   * <p>The following annotations are excluded:
+   *
+   * <ol>
+   * <li>AutoValue and its nested annotations;
+   * <li>any annotation appearing in the {@link AutoValue.CopyAnnotations#exclude} field;
+   * <li>any class annotation which is itself annotated with the
+   *     {@link java.lang.annotation.Inherited} meta-annotation.
+   * </ol>
+   *
+   * <p>When the <i>type</i> of an {@code @AutoValue} property method has annotations, those are
+   * part of the type, so they are always copied to the implementation of the method.
+   * {@code @CopyAnnotations} has no effect here. For example, suppose {@code @Confidential} is a
+   * {@link java.lang.annotation.ElementType#TYPE_USE TYPE_USE} annotation: <pre>
+   *
+   *   &#64;AutoValue
+   *   abstract class Person {
+   *     static Person create(&#64;Confidential String name, int id) {
+   *       return new AutoValue_Person(name, id);
+   *     }
+   *
+   *     abstract &#64;Confidential String name();
+   *     abstract int id();
+   *   }</pre>
+   *
+   * Then the implementation of the {@code name()} method will also have return type
+   * {@code @Confidential String}.
+   *
+   * @author Carmi Grushko
+   */
+  @Retention(RetentionPolicy.CLASS)
+  @Target({ElementType.TYPE, ElementType.METHOD})
+  public @interface CopyAnnotations {
+    Class<? extends Annotation>[] exclude() default {};
+  }
 }

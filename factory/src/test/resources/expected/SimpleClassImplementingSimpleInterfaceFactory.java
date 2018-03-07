@@ -15,14 +15,17 @@
  */
 package tests;
 
-import javax.annotation.Generated;
+import javax.annotation.processing.Generated;
 import javax.inject.Inject;
-import tests.SimpleClassImplementingSimpleInterface.SimpleInterface;
 
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
-final class SimpleClassImplementingSimpleInterfaceFactory implements SimpleInterface {
+@Generated(
+  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+  comments = "https://github.com/google/auto/tree/master/factory"
+  )
+final class SimpleClassImplementingSimpleInterfaceFactory
+    implements SimpleClassImplementingSimpleInterface.SimpleInterface {
   @Inject SimpleClassImplementingSimpleInterfaceFactory() {}
-  
+
   SimpleClassImplementingSimpleInterface create() {
     return new SimpleClassImplementingSimpleInterface();
   }

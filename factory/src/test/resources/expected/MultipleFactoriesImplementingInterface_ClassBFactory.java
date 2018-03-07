@@ -15,12 +15,15 @@
  */
 package tests;
 
-import javax.annotation.Generated;
+import javax.annotation.processing.Generated;
 import javax.inject.Inject;
-import tests.MultipleFactoriesImplementingInterface.Base.Factory;
 
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
-final class MultipleFactoriesImplementingInterface_ClassBFactory implements Factory {
+@Generated(
+  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+  comments = "https://github.com/google/auto/tree/master/factory"
+  )
+final class MultipleFactoriesImplementingInterface_ClassBFactory
+    implements MultipleFactoriesImplementingInterface.Base.Factory {
   @Inject
   MultipleFactoriesImplementingInterface_ClassBFactory() {}
 

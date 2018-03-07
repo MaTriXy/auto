@@ -42,8 +42,8 @@ import com.google.auto.value.processor.escapevelocity.Parser.Operator;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 abstract class ExpressionNode extends Node {
-  ExpressionNode(int lineNumber) {
-    super(lineNumber);
+  ExpressionNode(String resourceName, int lineNumber) {
+    super(resourceName, lineNumber);
   }
 
   /**
@@ -113,7 +113,7 @@ abstract class ExpressionNode extends Node {
     final ExpressionNode rhs;
 
     BinaryExpressionNode(ExpressionNode lhs, Operator op, ExpressionNode rhs) {
-      super(lhs.lineNumber);
+      super(lhs.resourceName, lhs.lineNumber);
       this.lhs = lhs;
       this.op = op;
       this.rhs = rhs;
@@ -129,6 +129,7 @@ abstract class ExpressionNode extends Node {
           return equal(context);
         case NOT_EQUAL:
           return !equal(context);
+        default: // fall out
       }
       int lhsInt = lhs.intValue(context);
       int rhsInt = rhs.intValue(context);
@@ -193,7 +194,7 @@ abstract class ExpressionNode extends Node {
     private final ExpressionNode expr;
 
     NotExpressionNode(ExpressionNode expr) {
-      super(expr.lineNumber);
+      super(expr.resourceName, expr.lineNumber);
       this.expr = expr;
     }
 

@@ -35,9 +35,7 @@ package com.google.auto.value.processor.escapevelocity;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.primitives.Primitives;
-
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -52,8 +50,8 @@ import java.util.Map;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 abstract class ReferenceNode extends ExpressionNode {
-  ReferenceNode(int lineNumber) {
-    super(lineNumber);
+  ReferenceNode(String resourceName, int lineNumber) {
+    super(resourceName, lineNumber);
   }
 
   /**
@@ -63,8 +61,8 @@ abstract class ReferenceNode extends ExpressionNode {
   static class PlainReferenceNode extends ReferenceNode {
     final String id;
 
-    PlainReferenceNode(int lineNumber, String id) {
-      super(lineNumber);
+    PlainReferenceNode(String resourceName, int lineNumber, String id) {
+      super(resourceName, lineNumber);
       this.id = id;
     }
 
@@ -72,7 +70,7 @@ abstract class ReferenceNode extends ExpressionNode {
       if (context.varIsDefined(id)) {
         return context.getVar(id);
       } else {
-        throw new EvaluationException("Undefined reference $" + id);
+        throw evaluationException("Undefined reference $" + id);
       }
     }
 
@@ -95,7 +93,7 @@ abstract class ReferenceNode extends ExpressionNode {
     final String id;
 
     MemberReferenceNode(ReferenceNode lhs, String id) {
-      super(lhs.lineNumber);
+      super(lhs.resourceName, lhs.lineNumber);
       this.lhs = lhs;
       this.id = id;
     }
@@ -106,7 +104,7 @@ abstract class ReferenceNode extends ExpressionNode {
     @Override Object evaluate(EvaluationContext context) {
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
-        throw new EvaluationException("Cannot get member " + id + " of null value");
+        throw evaluationException("Cannot get member " + id + " of null value");
       }
       // Velocity specifies that, given a reference .foo, it will first look for getfoo() and then
       // for getFoo(), and likewise given .Foo it will look for getFoo() and then getfoo().
@@ -126,7 +124,7 @@ abstract class ReferenceNode extends ExpressionNode {
           }
         }
       }
-      throw new EvaluationException(
+      throw evaluationException(
           "Member " + id + " does not correspond to a public getter of " + lhsValue
               + ", a " + lhsValue.getClass().getName());
     }
@@ -153,7 +151,7 @@ abstract class ReferenceNode extends ExpressionNode {
     final ExpressionNode index;
 
     IndexReferenceNode(ReferenceNode lhs, ExpressionNode index) {
-      super(lhs.lineNumber);
+      super(lhs.resourceName, lhs.lineNumber);
       this.lhs = lhs;
       this.index = index;
     }
@@ -161,17 +159,17 @@ abstract class ReferenceNode extends ExpressionNode {
     @Override Object evaluate(EvaluationContext context) {
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
-        throw new EvaluationException("Cannot index null value");
+        throw evaluationException("Cannot index null value");
       }
       if (lhsValue instanceof List<?>) {
         Object indexValue = index.evaluate(context);
         if (!(indexValue instanceof Integer)) {
-          throw new EvaluationException("List index is not an integer: " + indexValue);
+          throw evaluationException("List index is not an integer: " + indexValue);
         }
         List<?> lhsList = (List<?>) lhsValue;
         int i = (Integer) indexValue;
         if (i < 0 || i >= lhsList.size()) {
-          throw new EvaluationException(
+          throw evaluationException(
               "List index " + i + " is not valid for list of size " + lhsList.size());
         }
         return lhsList.get(i);
@@ -197,7 +195,7 @@ abstract class ReferenceNode extends ExpressionNode {
     final List<ExpressionNode> args;
 
     MethodReferenceNode(ReferenceNode lhs, String id, List<ExpressionNode> args) {
-      super(lhs.lineNumber);
+      super(lhs.resourceName, lhs.lineNumber);
       this.lhs = lhs;
       this.id = id;
       this.args = args;
@@ -218,18 +216,18 @@ abstract class ReferenceNode extends ExpressionNode {
      * <p>The method to be invoked must be visible in a public class or interface that is either the
      * class of {@code $x} itself or one of its supertypes. Allowing supertypes is important because
      * you may want to invoke a public method like {@link List#size()} on a list whose class is not
-     * public, such as the list returned by {@link Collections#singletonList}.
+     * public, such as the list returned by {@link java.util.Collections#singletonList}.
      */
     @Override Object evaluate(EvaluationContext context) {
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
         throw evaluationException("Cannot invoke method " + id + " on null value");
       }
-      List<Object> argValues = new ArrayList<Object>();
+      List<Object> argValues = new ArrayList<>();
       for (ExpressionNode arg : args) {
         argValues.add(arg.evaluate(context));
       }
-      List<Method> methodsWithName = Lists.newArrayList();
+      List<Method> methodsWithName = new ArrayList<>();
       for (Method method : lhsValue.getClass().getMethods()) {
         if (method.getName().equals(id) && !method.isSynthetic()) {
           methodsWithName.add(method);
@@ -238,7 +236,7 @@ abstract class ReferenceNode extends ExpressionNode {
       if (methodsWithName.isEmpty()) {
         throw evaluationException("No method " + id + " in " + lhsValue.getClass().getName());
       }
-      List<Method> compatibleMethods = Lists.newArrayList();
+      List<Method> compatibleMethods = new ArrayList<>();
       for (Method method : methodsWithName) {
         // TODO(emcmanus): support varargs, if it's useful
         if (compatibleArgs(method.getParameterTypes(), argValues)) {
@@ -253,8 +251,8 @@ abstract class ReferenceNode extends ExpressionNode {
           return invokeMethod(Iterables.getOnlyElement(compatibleMethods), lhsValue, argValues);
         default:
           throw evaluationException(
-              "Ambiguous method invocation, could be one of:"
-              + Joiner.on('\n').join(compatibleMethods));
+              "Ambiguous method invocation, could be one of:\n  "
+              + Joiner.on("\n  ").join(compatibleMethods));
       }
     }
 
@@ -327,7 +325,7 @@ abstract class ReferenceNode extends ExpressionNode {
    * will run will be the same.
    */
   Object invokeMethod(Method method, Object target, List<Object> argValues) {
-    if (!Modifier.isPublic(target.getClass().getModifiers())) {
+    if (!classIsPublic(target.getClass())) {
       method = visibleMethod(method, target.getClass());
       if (method == null) {
         throw evaluationException(
@@ -343,13 +341,17 @@ abstract class ReferenceNode extends ExpressionNode {
     }
   }
 
-    private static final String THIS_PACKAGE;
-    static {
-      String nodeClassName = Node.class.getName();
-      int lastDot = nodeClassName.lastIndexOf('.');
-      THIS_PACKAGE = nodeClassName.substring(0, lastDot + 1);
-      // Package name plus trailing dot.
+  private static String packageNameOf(Class<?> c) {
+    String name = c.getName();
+    int lastDot = name.lastIndexOf('.');
+    if (lastDot > 0) {
+      return name.substring(0, lastDot);
+    } else {
+      return "";
     }
+  }
+
+  private static final String THIS_PACKAGE = packageNameOf(Node.class) + ".";
 
   /**
    * Returns a Method with the same name and parameter types as the given one, but that is in a
@@ -368,7 +370,7 @@ abstract class ReferenceNode extends ExpressionNode {
     } catch (NoSuchMethodException e) {
       return null;
     }
-    if (Modifier.isPublic(in.getModifiers()) || in.getName().startsWith(THIS_PACKAGE)) {
+    if (classIsPublic(in) || in.getName().startsWith(THIS_PACKAGE)) {
       // The second disjunct is a hack to allow us to use the methods of $foreach without having
       // to make the ForEachVar class public. We can invoke those methods from here since they
       // are in the same package.
@@ -385,5 +387,51 @@ abstract class ReferenceNode extends ExpressionNode {
       }
     }
     return null;
+  }
+
+  /**
+   * Returns whether the given class is public as seen from this class. Prior to Java 9, a class
+   * was either public or not public. But with the introduction of modules in Java 9, a class can
+   * be marked public and yet not be visible, if it is not exported from the module it appears in.
+   * So, on Java 9, we perform an additional check on class {@code c}, which is effectively
+   * {@code c.getModule().isExported(c.getPackageName())}. We use reflection so that the code can
+   * compile on earlier Java versions.
+   */
+  private static boolean classIsPublic(Class<?> c) {
+    if (!Modifier.isPublic(c.getModifiers())) {
+      return false;
+    }
+    if (CLASS_GET_MODULE_METHOD != null) {
+      return classIsExported(c);
+    }
+    return true;
+  }
+
+  private static boolean classIsExported(Class<?> c) {
+    try {
+      String pkg = packageNameOf(c);
+      Object module = CLASS_GET_MODULE_METHOD.invoke(c);
+      return (Boolean) MODULE_IS_EXPORTED_METHOD.invoke(module, pkg);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  private static final Method CLASS_GET_MODULE_METHOD;
+  private static final Method MODULE_IS_EXPORTED_METHOD;
+
+  static {
+    Method classGetModuleMethod;
+    Method moduleIsExportedMethod;
+    try {
+      classGetModuleMethod = Class.class.getMethod("getModule");
+      Class<?> moduleClass = classGetModuleMethod.getReturnType();
+      moduleIsExportedMethod = moduleClass.getMethod("isExported", String.class);
+    } catch (Exception e) {
+      classGetModuleMethod = null;
+      moduleIsExportedMethod = null;
+    }
+    CLASS_GET_MODULE_METHOD = classGetModuleMethod;
+    MODULE_IS_EXPORTED_METHOD = moduleIsExportedMethod;
   }
 }

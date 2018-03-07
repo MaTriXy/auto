@@ -15,20 +15,32 @@
  */
 package tests;
 
-import javax.annotation.Generated;
+import javax.annotation.processing.Generated;
 import javax.inject.Inject;
 import javax.inject.Provider;
 
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
+@Generated(
+  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+  comments = "https://github.com/google/auto/tree/master/factory"
+  )
 final class ClassUsingQualifierWithArgsFactory {
   private final Provider<String> providedDepAProvider;
 
   @Inject ClassUsingQualifierWithArgsFactory(
       @QualifierWithArgs(name="Fred", count=3) Provider<String> providedDepAProvider) {
-    this.providedDepAProvider = providedDepAProvider;
+    this.providedDepAProvider = checkNotNull(providedDepAProvider, 1);
   }
 
   ClassUsingQualifierWithArgs create() {
-    return new ClassUsingQualifierWithArgs(providedDepAProvider.get());
+    return new ClassUsingQualifierWithArgs(checkNotNull(providedDepAProvider.get(), 1));
+  }
+
+  private static <T> T checkNotNull(T reference, int argumentIndex) {
+    if (reference == null) {
+      throw new NullPointerException(
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
+              + argumentIndex);
+    }
+    return reference;
   }
 }

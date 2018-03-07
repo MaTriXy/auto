@@ -15,31 +15,31 @@
  */
 package com.google.auto.value.processor;
 
+import static com.google.auto.common.GeneratedAnnotations.generatedAnnotation;
+import static com.google.auto.value.processor.ClassNames.AUTO_ANNOTATION_NAME;
+
+import com.google.auto.common.MoreElements;
 import com.google.auto.common.SuperficialValidation;
 import com.google.auto.service.AutoService;
-import com.google.auto.value.AutoAnnotation;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Primitives;
-
 import java.io.IOException;
 import java.io.Writer;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-
-import javax.annotation.Generated;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.Processor;
 import javax.annotation.processing.RoundEnvironment;
+import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.lang.model.SourceVersion;
-import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
@@ -52,7 +52,9 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.ElementFilter;
+import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
@@ -64,13 +66,9 @@ import javax.tools.JavaFileObject;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 @AutoService(Processor.class)
+@SupportedAnnotationTypes(AUTO_ANNOTATION_NAME)
 public class AutoAnnotationProcessor extends AbstractProcessor {
   public AutoAnnotationProcessor() {}
-
-  @Override
-  public Set<String> getSupportedAnnotationTypes() {
-    return ImmutableSet.of(AutoAnnotation.class.getName());
-  }
 
   @Override
   public SourceVersion getSupportedSourceVersion() {
@@ -95,14 +93,20 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     return new AbortProcessingException();
   }
 
+  private Elements elementUtils;
   private Types typeUtils;
 
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+    elementUtils = processingEnv.getElementUtils();
     typeUtils = processingEnv.getTypeUtils();
-    boolean claimed = (annotations.size() == 1
-        && annotations.iterator().next().getQualifiedName().toString().equals(
-            AutoAnnotation.class.getName()));
+    boolean claimed =
+        (annotations.size() == 1
+            && annotations
+                .iterator()
+                .next()
+                .getQualifiedName()
+                .contentEquals(AUTO_ANNOTATION_NAME));
     if (claimed) {
       process(roundEnv);
       return true;
@@ -112,8 +116,9 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
   }
 
   private void process(RoundEnvironment roundEnv) {
+    TypeElement autoAnnotation = elementUtils.getTypeElement(AUTO_ANNOTATION_NAME);
     Collection<? extends Element> annotatedElements =
-        roundEnv.getElementsAnnotatedWith(AutoAnnotation.class);
+        roundEnv.getElementsAnnotatedWith(autoAnnotation);
     List<ExecutableElement> methods = ElementFilter.methodsIn(annotatedElements);
     if (!SuperficialValidation.validateElements(methods) || methodsAreOverloaded(methods)) {
       return;
@@ -124,10 +129,9 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
       } catch (AbortProcessingException e) {
         // We abandoned this type, but continue with the next.
       } catch (RuntimeException e) {
-        // Don't propagate this exception, which will confusingly crash the compiler.
-        // Instead, report a compiler error with the stack trace.
         String trace = Throwables.getStackTraceAsString(e);
         reportError(method, "@AutoAnnotation processor threw an exception: %s", trace);
+        throw e;
       }
     }
   }
@@ -138,51 +142,110 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     }
 
     TypeElement annotationElement = getAnnotationReturnType(method);
-    TypeMirror annotationTypeMirror = annotationElement.asType();
 
     Set<Class<?>> wrapperTypesUsedInCollections = wrapperTypesUsedInCollections(method);
 
     ImmutableMap<String, ExecutableElement> memberMethods = getMemberMethods(annotationElement);
-    Set<TypeMirror> memberTypes = getMemberTypes(memberMethods.values());
-    Set<TypeMirror> referencedTypes = getReferencedTypes(
-        annotationTypeMirror, method, memberTypes, wrapperTypesUsedInCollections);
     TypeElement methodClass = (TypeElement) method.getEnclosingElement();
     String pkg = TypeSimplifier.packageNameOf(methodClass);
-    TypeSimplifier typeSimplifier = new TypeSimplifier(
-        typeUtils, pkg, referencedTypes, annotationTypeMirror);
 
-    AnnotationOutput annotationOutput = new AnnotationOutput(typeSimplifier);
     ImmutableMap<String, AnnotationValue> defaultValues = getDefaultValues(annotationElement);
-    ImmutableMap<String, Member> members =
-        getMembers(method, memberMethods, typeSimplifier, annotationOutput);
-    ImmutableMap<String, Parameter> parameters =
-        getParameters(annotationElement, method, members, typeSimplifier);
+    ImmutableMap<String, Member> members = getMembers(method, memberMethods);
+    ImmutableMap<String, Parameter> parameters = getParameters(annotationElement, method, members);
     validateParameters(annotationElement, method, members, parameters, defaultValues);
 
     String generatedClassName = generatedClassName(method);
 
     AutoAnnotationTemplateVars vars = new AutoAnnotationTemplateVars();
     vars.annotationFullName = annotationElement.toString();
-    vars.annotationName = typeSimplifier.simplify(annotationElement.asType());
+    vars.annotationName = TypeEncoder.encode(annotationElement.asType());
     vars.className = generatedClassName;
-    vars.imports = typeSimplifier.typesToImport();
-    vars.generated = typeSimplifier.simplify(getTypeMirror(Generated.class));
-    vars.arrays = typeSimplifier.simplify(getTypeMirror(Arrays.class));
+    vars.generated = getGeneratedTypeName();
     vars.members = members;
     vars.params = parameters;
     vars.pkg = pkg;
     vars.wrapperTypesUsedInCollections = wrapperTypesUsedInCollections;
     vars.gwtCompatible = isGwtCompatible(annotationElement);
+    ImmutableMap<String, Integer> invariableHashes = invariableHashes(members, parameters.keySet());
+    vars.invariableHashSum = 0;
+    for (int h : invariableHashes.values()) {
+      vars.invariableHashSum += h;
+    }
+    vars.invariableHashes = invariableHashes.keySet();
     String text = vars.toText();
+    text = TypeEncoder.decode(text, processingEnv, pkg, annotationElement.asType());
     text = Reformatter.fixup(text);
-    writeSourceFile(pkg + "." + generatedClassName, text, methodClass);
+    String fullName = fullyQualifiedName(pkg, generatedClassName);
+    writeSourceFile(fullName, text, methodClass);
+  }
+
+  private String getGeneratedTypeName() {
+    return generatedAnnotation(elementUtils, processingEnv.getSourceVersion())
+        .map(generatedAnnotation -> TypeEncoder.encode(generatedAnnotation.asType()))
+        .orElse(null);
+  }
+
+  /**
+   * Returns the hashCode of the given AnnotationValue, if that hashCode is guaranteed to be always
+   * the same. The hashCode of a String or primitive type never changes. The hashCode of a Class
+   * or an enum constant does potentially change in different runs of the same program. The hashCode
+   * of an array doesn't change if the hashCodes of its elements don't. Although we could have a
+   * similar rule for nested annotation values, we currently don't.
+   */
+  private static Optional<Integer> invariableHash(AnnotationValue annotationValue) {
+    Object value = annotationValue.getValue();
+    if (value instanceof String || Primitives.isWrapperType(value.getClass())) {
+      return Optional.of(value.hashCode());
+    } else if (value instanceof List<?>) {
+      @SuppressWarnings("unchecked")  // by specification
+      List<? extends AnnotationValue> list = (List<? extends AnnotationValue>) value;
+      return invariableHash(list);
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  private static Optional<Integer> invariableHash(
+      List<? extends AnnotationValue> annotationValues) {
+    int h = 1;
+    for (AnnotationValue annotationValue : annotationValues) {
+      Optional<Integer> maybeHash = invariableHash(annotationValue);
+      if (!maybeHash.isPresent()) {
+        return Optional.empty();
+      }
+      h = h * 31 + maybeHash.get();
+    }
+    return Optional.of(h);
+  }
+
+  /**
+   * Returns a map from the names of members with invariable hashCodes to the values of those
+   * hashCodes.
+   */
+  private static ImmutableMap<String, Integer> invariableHashes(
+      ImmutableMap<String, Member> members, ImmutableSet<String> parameters) {
+    ImmutableMap.Builder<String, Integer> builder = ImmutableMap.builder();
+    for (String element : members.keySet()) {
+      if (!parameters.contains(element)) {
+        Member member = members.get(element);
+        AnnotationValue annotationValue = member.method.getDefaultValue();
+        Optional<Integer> invariableHash = invariableHash(annotationValue);
+        if (invariableHash.isPresent()) {
+          builder.put(element, (element.hashCode() * 127) ^ invariableHash.get());
+        }
+      }
+    }
+    return builder.build();
   }
 
   private boolean methodsAreOverloaded(List<ExecutableElement> methods) {
     boolean overloaded = false;
     Set<String> classNames = new HashSet<String>();
     for (ExecutableElement method : methods) {
-      if (!classNames.add(generatedClassName(method))) {
+      String qualifiedClassName = fullyQualifiedName(
+          MoreElements.getPackage(method).getQualifiedName().toString(),
+          generatedClassName(method));
+      if (!classNames.add(qualifiedClassName)) {
         overloaded = true;
         reportError(method, "@AutoAnnotation methods cannot be overloaded");
       }
@@ -224,16 +287,14 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
 
   private ImmutableMap<String, Member> getMembers(
       Element context,
-      ImmutableMap<String, ExecutableElement> memberMethods,
-      TypeSimplifier typeSimplifier,
-      AnnotationOutput annotationOutput) {
+      ImmutableMap<String, ExecutableElement> memberMethods) {
     ImmutableMap.Builder<String, Member> members = ImmutableMap.builder();
     for (Map.Entry<String, ExecutableElement> entry : memberMethods.entrySet()) {
       ExecutableElement memberMethod = entry.getValue();
       String name = memberMethod.getSimpleName().toString();
       members.put(
           name,
-          new Member(processingEnv, context, memberMethod, typeSimplifier, annotationOutput));
+          new Member(processingEnv, context, memberMethod));
     }
     return members.build();
   }
@@ -251,19 +312,10 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     return defaultValues.build();
   }
 
-  private Set<TypeMirror> getMemberTypes(Collection<ExecutableElement> memberMethods) {
-    Set<TypeMirror> types = new TypeMirrorSet();
-    for (ExecutableElement memberMethod : memberMethods) {
-      types.add(memberMethod.getReturnType());
-    }
-    return types;
-  }
-
   private ImmutableMap<String, Parameter> getParameters(
       TypeElement annotationElement,
       ExecutableElement method,
-      Map<String, Member> members,
-      TypeSimplifier typeSimplifier) {
+      Map<String, Member> members) {
     ImmutableMap.Builder<String, Parameter> parameters = ImmutableMap.builder();
     boolean error = false;
     for (VariableElement parameter : method.getParameters()) {
@@ -278,7 +330,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
         TypeMirror parameterType = parameter.asType();
         TypeMirror memberType = member.getTypeMirror();
         if (compatibleTypes(parameterType, memberType)) {
-          parameters.put(name, new Parameter(parameterType, typeSimplifier));
+          parameters.put(name, new Parameter(parameterType));
         } else {
           reportError(parameter,
               "@AutoAnnotation method parameter '%s' has type %s but %s.%s has type %s",
@@ -337,7 +389,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
         ? typeUtils.boxedClass((PrimitiveType) arrayElementType).asType()
         : arrayElementType;
     TypeElement javaUtilCollection =
-        processingEnv.getElementUtils().getTypeElement(Collection.class.getCanonicalName());
+        elementUtils.getTypeElement(Collection.class.getCanonicalName());
     DeclaredType collectionOfElement =
         typeUtils.getDeclaredType(javaUtilCollection, wrappedArrayElementType);
     return typeUtils.isAssignable(parameterType, collectionOfElement);
@@ -349,8 +401,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
    * type, for example to convert {@code Collection<Integer>} into {@code int[]}.
    */
   private Set<Class<?>> wrapperTypesUsedInCollections(ExecutableElement method) {
-    TypeElement javaUtilCollection =
-        processingEnv.getElementUtils().getTypeElement(Collection.class.getName());
+    TypeElement javaUtilCollection = elementUtils.getTypeElement(Collection.class.getName());
     ImmutableSet.Builder<Class<?>> usedInCollections = ImmutableSet.builder();
     for (Class<?> wrapper : Primitives.allWrapperTypes()) {
       DeclaredType collectionOfWrapper =
@@ -365,64 +416,26 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     return usedInCollections.build();
   }
 
-  private Set<TypeMirror> getReferencedTypes(
-      TypeMirror annotation,
-      ExecutableElement method,
-      Set<TypeMirror> memberTypes,
-      Set<Class<?>> wrapperTypesUsedInCollections) {
-    Set<TypeMirror> types = new TypeMirrorSet();
-    types.add(annotation);
-    types.add(getTypeMirror(Generated.class));
-    for (VariableElement parameter : method.getParameters()) {
-      // Method parameter types are usually the same as annotation member types, but in the case of
-      // List<Integer> for int[] we are referencing List.
-      types.add(parameter.asType());
-    }
-    types.addAll(memberTypes);
-    if (containsArrayType(types)) {
-      // If there are array properties then we will be referencing java.util.Arrays.
-      types.add(getTypeMirror(Arrays.class));
-    }
-    if (!wrapperTypesUsedInCollections.isEmpty()) {
-      // If there is at least one parameter whose type is a collection of a primitive wrapper type
-      // (for example List<Integer>) then we will be referencing java util.Collection.
-      types.add(getTypeMirror(Collection.class));
-    }
-    return types;
-  }
-
   private TypeMirror getTypeMirror(Class<?> c) {
-    return processingEnv.getElementUtils().getTypeElement(c.getName()).asType();
-  }
-
-  private static boolean containsArrayType(Set<TypeMirror> types) {
-    for (TypeMirror type : types) {
-      if (type.getKind() == TypeKind.ARRAY) {
-        return true;
-      }
-    }
-    return false;
+    return elementUtils.getTypeElement(c.getName()).asType();
   }
 
   private static boolean isGwtCompatible(TypeElement annotationElement) {
-    for (AnnotationMirror annotationMirror : annotationElement.getAnnotationMirrors()) {
-      String name = annotationMirror.getAnnotationType().asElement().getSimpleName().toString();
-      if (name.equals("GwtCompatible")) {
-        return true;
-      }
-    }
-    return false;
+    return annotationElement.getAnnotationMirrors().stream()
+        .map(mirror -> mirror.getAnnotationType().asElement())
+        .anyMatch(element -> element.getSimpleName().contentEquals("GwtCompatible"));
+  }
+
+  private static String fullyQualifiedName(String pkg, String cls) {
+    return pkg.isEmpty() ? cls : pkg + "." + cls;
   }
 
   private void writeSourceFile(String className, String text, TypeElement originatingType) {
     try {
       JavaFileObject sourceFile =
           processingEnv.getFiler().createSourceFile(className, originatingType);
-      Writer writer = sourceFile.openWriter();
-      try {
+      try (Writer writer = sourceFile.openWriter()) {
         writer.write(text);
-      } finally {
-        writer.close();
       }
     } catch (IOException e) {
       // This should really be an error, but we make it a warning in the hope of resisting Eclipse
@@ -440,20 +453,14 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     private final ProcessingEnvironment processingEnv;
     private final Element context;
     private final ExecutableElement method;
-    private final TypeSimplifier typeSimplifier;
-    private final AnnotationOutput annotationOutput;
 
     Member(
         ProcessingEnvironment processingEnv,
         Element context,
-        ExecutableElement method,
-        TypeSimplifier typeSimplifier,
-        AnnotationOutput annotationDefaults) {
+        ExecutableElement method) {
       this.processingEnv = processingEnv;
       this.context = context;
       this.method = method;
-      this.typeSimplifier = typeSimplifier;
-      this.annotationOutput = annotationDefaults;
     }
 
     @Override
@@ -462,13 +469,13 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     }
 
     public String getType() {
-      return typeSimplifier.simplify(getTypeMirror());
+      return TypeEncoder.encode(getTypeMirror());
     }
 
     public String getComponentType() {
       Preconditions.checkState(getTypeMirror().getKind() == TypeKind.ARRAY);
       ArrayType arrayType = (ArrayType) getTypeMirror();
-      return typeSimplifier.simplify(arrayType.getComponentType());
+      return TypeEncoder.encode(arrayType.getComponentType());
     }
 
     public TypeMirror getTypeMirror() {
@@ -479,12 +486,40 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
       return getTypeMirror().getKind();
     }
 
+    public boolean isArrayOfClassWithBounds() {
+      if (getTypeMirror().getKind() != TypeKind.ARRAY) {
+        return false;
+      }
+      TypeMirror componentType = ((ArrayType) getTypeMirror()).getComponentType();
+      if (componentType.getKind() != TypeKind.DECLARED) {
+        return false;
+      }
+      DeclaredType declared = (DeclaredType) componentType;
+      if (!((TypeElement) processingEnv.getTypeUtils().asElement(componentType))
+          .getQualifiedName()
+          .contentEquals("java.lang.Class")) {
+        return false;
+      }
+      if (declared.getTypeArguments().size() != 1) {
+        return false;
+      }
+      TypeMirror parameter = declared.getTypeArguments().get(0);
+      if (parameter.getKind() != TypeKind.WILDCARD) {
+        return true;  // for Class<Foo>
+      }
+      WildcardType wildcard = (WildcardType) parameter;
+      // In theory, we should check if getExtendsBound() != Object, since '?' is equivalent to
+      // '? extends Object', but, experimentally, neither javac or ecj will sets getExtendsBound()
+      // to 'Object', so there isn't a point in checking.
+      return wildcard.getSuperBound() != null || wildcard.getExtendsBound() != null;
+    }
+
     public String getDefaultValue() {
       AnnotationValue defaultValue = method.getDefaultValue();
       if (defaultValue == null) {
         return null;
       } else {
-        return annotationOutput.sourceFormForInitializer(
+        return AnnotationOutput.sourceFormForInitializer(
             defaultValue, processingEnv, method.getSimpleName().toString(), context);
       }
     }
@@ -494,8 +529,8 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     private final String typeName;
     private final TypeKind kind;
 
-    Parameter(TypeMirror type, TypeSimplifier typeSimplifier) {
-      this.typeName = typeSimplifier.simplify(type);
+    Parameter(TypeMirror type) {
+      this.typeName = TypeEncoder.encode(type);
       this.kind = type.getKind();
     }
 

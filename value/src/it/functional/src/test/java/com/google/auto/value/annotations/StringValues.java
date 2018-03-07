@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright (C) 2014 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package tests;
+package com.google.auto.value.annotations;
 
-import javax.annotation.Generated;
-import javax.inject.Inject;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
-@Generated("com.google.auto.factory.processor.AutoFactoryProcessor")
-final class NestedClasses_CustomNamedFactory {
-  @Inject NestedClasses_CustomNamedFactory() {}
-  
-  NestedClasses.SimpleNestedClassWithCustomFactory create() {
-    return new NestedClasses.SimpleNestedClassWithCustomFactory();
-  }
+/**
+ * An annotation with one member, an array of strings with the default name {@code value}, and
+ * runtime retention so it can be accessed through reflection.
+ *
+ * @author emcmanus@google.com (Éamonn McManus)
+ */
+@Retention(RetentionPolicy.RUNTIME)
+public @interface StringValues {
+  String[] value();
 }
