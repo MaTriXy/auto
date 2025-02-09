@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,22 +17,17 @@ package com.google.auto.common;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.Iterables.getOnlyElement;
 import static javax.lang.model.type.TypeKind.ARRAY;
 import static javax.lang.model.type.TypeKind.DECLARED;
 import static javax.lang.model.type.TypeKind.EXECUTABLE;
+import static javax.lang.model.type.TypeKind.INTERSECTION;
 import static javax.lang.model.type.TypeKind.TYPEVAR;
 import static javax.lang.model.type.TypeKind.WILDCARD;
 
 import com.google.common.base.Equivalence;
-import com.google.common.base.Objects;
 import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
-import com.google.common.base.Throwables;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -48,6 +43,7 @@ import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ErrorType;
 import javax.lang.model.type.ExecutableType;
+import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.NoType;
 import javax.lang.model.type.NullType;
 import javax.lang.model.type.PrimitiveType;
@@ -56,8 +52,9 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.Elements;
-import javax.lang.model.util.SimpleTypeVisitor6;
+import javax.lang.model.util.SimpleTypeVisitor8;
 import javax.lang.model.util.Types;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Utilities related to {@link TypeMirror} instances.
@@ -78,8 +75,28 @@ public final class MoreTypes {
     protected int doHash(TypeMirror t) {
       return MoreTypes.hash(t, ImmutableSet.<Element>of());
     }
+
+    @Override
+    public String toString() {
+      return "MoreTypes.equivalence()";
+    }
   }
 
+  /**
+   * Returns an {@link Equivalence} that can be used to compare types. The standard way to compare
+   * types is {@link javax.lang.model.util.Types#isSameType Types.isSameType}, but this alternative
+   * may be preferred in a number of cases:
+   *
+   * <ul>
+   * <li>If you don't have an instance of {@code Types}.
+   * <li>If you want a reliable {@code hashCode()} for the types, for example to construct a set
+   *     of types using {@link java.util.HashSet} with {@link Equivalence#wrap(Object)}.
+   * <li>If you want distinct type variables to be considered equal if they have the same names
+   *     and bounds.
+   * <li>If you want wildcard types to compare equal if they have the same bounds. {@code
+   *     Types.isSameType} never considers wildcards equal, even when comparing a type to itself.
+   * </ul>
+   */
   public static Equivalence<TypeMirror> equivalence() {
     return TypeEquivalence.INSTANCE;
   }
@@ -123,25 +140,45 @@ public final class MoreTypes {
     }
 
     @Override
-    public boolean equals(Object o) {
-      if (o instanceof ComparedElements) {
-        ComparedElements that = (ComparedElements) o;
-        int nArguments = aArguments.size();
-        if (!this.a.equals(that.a)
-            || !this.b.equals(that.b)
-            || nArguments != bArguments.size()) {
-          // The arguments must be the same size, but we check anyway.
-          return false;
-        }
-        for (int i = 0; i < nArguments; i++) {
-          if (aArguments.get(i) != bArguments.get(i)) {
-            return false;
-          }
-        }
-        return true;
-      } else {
+    public boolean equals(@Nullable Object o) {
+      if (!(o instanceof ComparedElements)) {
         return false;
       }
+      ComparedElements that = (ComparedElements) o;
+
+      int nArguments = this.aArguments.size();
+      if (nArguments != that.aArguments.size()) {
+        return false;
+      }
+      // The arguments must be the same size, but we check anyway.
+      if (nArguments != this.bArguments.size() || nArguments != that.bArguments.size()) {
+        return false;
+      }
+
+      if (!this.a.equals(that.a) || !this.b.equals(that.b)) {
+        return false;
+      }
+
+      /*
+       * The purpose here is just to avoid the infinite recursion that we would otherwise have
+       * if Enum<E extends Enum<E>> is compared against itself, for example. If we are able to
+       * see that the inner Enum<E> is the same object as the outer one then we don't need a
+       * recursive call to compare the "a" Enum<E> against the "b" Enum<E>. The same-object check
+       * may not be completely justified, but it relies on the practical assumption that the
+       * compiler is not going to conjure up an infinite regress of objects to represent this
+       * recursive type. Other comparison methods like comparing their toString() are expensive
+       * and not warranted.
+       */
+      for (int i = 0; i < nArguments; i++) {
+        if (this.aArguments.get(i) != that.aArguments.get(i)) {
+          return false;
+        }
+        if (this.bArguments.get(i) != that.bArguments.get(i)) {
+          return false;
+        }
+      }
+
+      return true;
     }
 
     @Override
@@ -150,7 +187,7 @@ public final class MoreTypes {
     }
   }
 
-  private static final class EqualVisitor extends SimpleTypeVisitor6<Boolean, EqualVisitorParam> {
+  private static final class EqualVisitor extends SimpleTypeVisitor8<Boolean, EqualVisitorParam> {
     private static final EqualVisitor INSTANCE = new EqualVisitor();
 
     @Override
@@ -193,6 +230,7 @@ public final class MoreTypes {
     }
 
     @Override
+    @SuppressWarnings("TypeEquals")
     public Boolean visitError(ErrorType a, EqualVisitorParam p) {
       return a.equals(p.type);
     }
@@ -205,6 +243,15 @@ public final class MoreTypes {
             && equal(a.getReturnType(), b.getReturnType(), p.visiting)
             && equalLists(a.getThrownTypes(), b.getThrownTypes(), p.visiting)
             && equalLists(a.getTypeVariables(), b.getTypeVariables(), p.visiting);
+      }
+      return false;
+    }
+
+    @Override
+    public Boolean visitIntersection(IntersectionType a, EqualVisitorParam p) {
+      if (p.type.getKind().equals(INTERSECTION)) {
+        IntersectionType b = (IntersectionType) p.type;
+        return equalLists(a.getBounds(), b.getBounds(), p.visiting);
       }
       return false;
     }
@@ -271,24 +318,15 @@ public final class MoreTypes {
     }
   }
 
-  private static final Class<?> INTERSECTION_TYPE;
-  private static final Method GET_BOUNDS;
-
-  static {
-    Class<?> c;
-    Method m;
-    try {
-      c = Class.forName("javax.lang.model.type.IntersectionType");
-      m = c.getMethod("getBounds");
-    } catch (Exception e) {
-      c = null;
-      m = null;
+  @SuppressWarnings("TypeEquals")
+  private static boolean equal(
+      @Nullable TypeMirror a, @Nullable TypeMirror b, Set<ComparedElements> visiting) {
+    if (a == b) {
+      return true;
     }
-    INTERSECTION_TYPE = c;
-    GET_BOUNDS = m;
-  }
-
-  private static boolean equal(TypeMirror a, TypeMirror b, Set<ComparedElements> visiting) {
+    if (a == null || b == null) {
+      return false;
+    }
     // TypeMirror.equals is not guaranteed to return true for types that are equal, but we can
     // assume that if it does return true then the types are equal. This check also avoids getting
     // stuck in infinite recursion when Eclipse decrees that the upper bound of the second K in
@@ -296,20 +334,15 @@ public final class MoreTypes {
     // The javac implementation of ExecutableType, at least in some versions, does not take thrown
     // exceptions into account in its equals implementation, so avoid this optimization for
     // ExecutableType.
-    if (Objects.equal(a, b) && !(a instanceof ExecutableType)) {
+    @SuppressWarnings("TypesEquals")
+    boolean equal = a.equals(b);
+    if (equal && a.getKind() != TypeKind.EXECUTABLE) {
       return true;
     }
     EqualVisitorParam p = new EqualVisitorParam();
     p.type = b;
     p.visiting = visiting;
-    if (INTERSECTION_TYPE != null) {
-      if (isIntersectionType(a)) {
-        return equalIntersectionTypes(a, b, visiting);
-      } else if (isIntersectionType(b)) {
-        return false;
-      }
-    }
-    return (a == b) || (a != null && b != null && a.accept(EqualVisitor.INSTANCE, p));
+    return a.accept(EqualVisitor.INSTANCE, p);
   }
 
   /**
@@ -319,41 +352,13 @@ public final class MoreTypes {
    * <a href="https://bugs.eclipse.org/bugs/show_bug.cgi?id=508222">this bug</a> whereby
    * the Eclipse compiler returns a value for static classes that is not NoType.
    */
-  private static TypeMirror enclosingType(DeclaredType t) {
+  private static @Nullable TypeMirror enclosingType(DeclaredType t) {
     TypeMirror enclosing = t.getEnclosingType();
     if (enclosing.getKind().equals(TypeKind.NONE)
         || t.asElement().getModifiers().contains(Modifier.STATIC)) {
       return null;
     }
     return enclosing;
-  }
-
-  private static boolean isIntersectionType(TypeMirror t) {
-    return t != null && t.getKind().name().equals("INTERSECTION");
-  }
-
-  // The representation of an intersection type, as in <T extends Number & Comparable<T>>, changed
-  // between Java 7 and Java 8. In Java 7 it was modeled as a fake DeclaredType, and our logic
-  // for DeclaredType does the right thing. In Java 8 it is modeled as a new type IntersectionType.
-  // In order for our code to run on Java 7 (and Java 6) we can't even mention IntersectionType,
-  // so we can't override visitIntersectionType(IntersectionType). Instead, we discover through
-  // reflection whether IntersectionType exists, and if it does we extract the bounds of the
-  // intersection ((Number, Comparable<T>) in the example) and compare them directly.
-  @SuppressWarnings("unchecked")
-  private static boolean equalIntersectionTypes(
-      TypeMirror a, TypeMirror b, Set<ComparedElements> visiting) {
-    if (!isIntersectionType(b)) {
-      return false;
-    }
-    List<? extends TypeMirror> aBounds;
-    List<? extends TypeMirror> bBounds;
-    try {
-      aBounds = (List<? extends TypeMirror>) GET_BOUNDS.invoke(a);
-      bBounds = (List<? extends TypeMirror>) GET_BOUNDS.invoke(b);
-    } catch (Exception e) {
-      throw Throwables.propagate(e);
-    }
-    return equalLists(aBounds, bBounds, visiting);
   }
 
   private static boolean equalLists(
@@ -366,22 +371,20 @@ public final class MoreTypes {
     Iterator<? extends TypeMirror> aIterator = a.iterator();
     Iterator<? extends TypeMirror> bIterator = b.iterator();
     while (aIterator.hasNext()) {
-      if (!bIterator.hasNext()) {
-        return false;
-      }
+      // We checked that the lists have the same size, so we know that bIterator.hasNext() too.
       TypeMirror nextMirrorA = aIterator.next();
       TypeMirror nextMirrorB = bIterator.next();
       if (!equal(nextMirrorA, nextMirrorB, visiting)) {
         return false;
       }
     }
-    return !aIterator.hasNext();
+    return true;
   }
 
   private static final int HASH_SEED = 17;
   private static final int HASH_MULTIPLIER = 31;
 
-  private static final class HashVisitor extends SimpleTypeVisitor6<Integer, Set<Element>> {
+  private static final class HashVisitor extends SimpleTypeVisitor8<Integer, Set<Element>> {
     private static final HashVisitor INSTANCE = new HashVisitor();
 
     int hashKind(int seed, TypeMirror t) {
@@ -408,7 +411,7 @@ public final class MoreTypes {
       Element element = t.asElement();
       if (visiting.contains(element)) {
         return 0;
-          }
+      }
       Set<Element> newVisiting = new HashSet<Element>(visiting);
       newVisiting.add(element);
       int result = hashKind(HASH_SEED, t);
@@ -442,9 +445,9 @@ public final class MoreTypes {
       result += t.getLowerBound().accept(this, visiting);
       TypeParameterElement element = (TypeParameterElement) t.asElement();
       for (TypeMirror bound : element.getBounds()) {
-            result *= HASH_MULTIPLIER;
+        result *= HASH_MULTIPLIER;
         result += bound.accept(this, visiting);
-          }
+      }
       return result;
     }
 
@@ -462,7 +465,7 @@ public final class MoreTypes {
     public Integer visitUnknown(TypeMirror t, Set<Element> visiting) {
       throw new UnsupportedOperationException();
     }
-      };
+  }
 
   private static int hashList(List<? extends TypeMirror> mirrors, Set<Element> visiting) {
     int result = HASH_SEED;
@@ -489,17 +492,17 @@ public final class MoreTypes {
   }
 
   private static final class ReferencedTypes
-      extends SimpleTypeVisitor6<Void, ImmutableSet.Builder<TypeElement>> {
+      extends SimpleTypeVisitor8<@Nullable Void, ImmutableSet.Builder<TypeElement>> {
     private static final ReferencedTypes INSTANCE = new ReferencedTypes();
 
     @Override
-    public Void visitArray(ArrayType t, ImmutableSet.Builder<TypeElement> p) {
+    public @Nullable Void visitArray(ArrayType t, ImmutableSet.Builder<TypeElement> p) {
       t.getComponentType().accept(this, p);
       return null;
     }
 
     @Override
-    public Void visitDeclared(DeclaredType t, ImmutableSet.Builder<TypeElement> p) {
+    public @Nullable Void visitDeclared(DeclaredType t, ImmutableSet.Builder<TypeElement> p) {
       p.add(MoreElements.asType(t.asElement()));
       for (TypeMirror typeArgument : t.getTypeArguments()) {
         typeArgument.accept(this, p);
@@ -508,14 +511,14 @@ public final class MoreTypes {
     }
 
     @Override
-    public Void visitTypeVariable(TypeVariable t, ImmutableSet.Builder<TypeElement> p) {
+    public @Nullable Void visitTypeVariable(TypeVariable t, ImmutableSet.Builder<TypeElement> p) {
       t.getLowerBound().accept(this, p);
       t.getUpperBound().accept(this, p);
       return null;
     }
 
     @Override
-    public Void visitWildcard(WildcardType t, ImmutableSet.Builder<TypeElement> p) {
+    public @Nullable Void visitWildcard(WildcardType t, ImmutableSet.Builder<TypeElement> p) {
       TypeMirror extendsBound = t.getExtendsBound();
       if (extendsBound != null) {
         extendsBound.accept(this, p);
@@ -541,29 +544,30 @@ public final class MoreTypes {
     return typeMirror.accept(AsElementVisitor.INSTANCE, null);
   }
 
-  private static final class AsElementVisitor extends SimpleTypeVisitor6<Element, Void> {
+  private static final class AsElementVisitor extends SimpleTypeVisitor8<Element, Void> {
     private static final AsElementVisitor INSTANCE = new AsElementVisitor();
 
     @Override
     protected Element defaultAction(TypeMirror e, Void p) {
-          throw new IllegalArgumentException(e + " cannot be converted to an Element");
-        }
+      throw new IllegalArgumentException(e + " cannot be converted to an Element");
+    }
 
     @Override
     public Element visitDeclared(DeclaredType t, Void p) {
-          return t.asElement();
-        }
+      return t.asElement();
+    }
 
     @Override
     public Element visitError(ErrorType t, Void p) {
-          return t.asElement();
-        }
+      return t.asElement();
+    }
 
     @Override
     public Element visitTypeVariable(TypeVariable t, Void p) {
-          return t.asElement();
-        }
-      };
+      return t.asElement();
+    }
+  }
+  ;
 
   // TODO(gak): consider removing these two methods as they're pretty trivial now
   public static TypeElement asTypeElement(TypeMirror mirror) {
@@ -580,8 +584,8 @@ public final class MoreTypes {
   }
 
   /**
-   * Returns a {@link ArrayType} if the {@link TypeMirror} represents a primitive array or throws an
-   * {@link IllegalArgumentException}.
+   * Returns a {@link ArrayType} if the {@link TypeMirror} represents an array or throws an {@link
+   * IllegalArgumentException}.
    */
   public static ArrayType asArray(TypeMirror maybeArrayType) {
     return maybeArrayType.accept(ArrayTypeVisitor.INSTANCE, null);
@@ -591,7 +595,7 @@ public final class MoreTypes {
     private static final ArrayTypeVisitor INSTANCE = new ArrayTypeVisitor();
 
     ArrayTypeVisitor() {
-      super("primitive array");
+      super("array");
     }
 
     @Override
@@ -664,6 +668,27 @@ public final class MoreTypes {
   }
 
   /**
+   * Returns an {@link IntersectionType} if the {@link TypeMirror} represents an intersection-type
+   * or throws an {@link IllegalArgumentException}.
+   */
+  public static IntersectionType asIntersection(TypeMirror maybeIntersectionType) {
+    return maybeIntersectionType.accept(IntersectionTypeVisitor.INSTANCE, null);
+  }
+
+  private static final class IntersectionTypeVisitor extends CastingTypeVisitor<IntersectionType> {
+    private static final IntersectionTypeVisitor INSTANCE = new IntersectionTypeVisitor();
+
+    IntersectionTypeVisitor() {
+      super("intersection type");
+    }
+
+    @Override
+    public IntersectionType visitIntersection(IntersectionType type, Void ignore) {
+      return type;
+    }
+  }
+
+  /**
    * Returns a {@link NoType} if the {@link TypeMirror} represents an non-type such as void, or
    * package, etc. or throws an {@link IllegalArgumentException}.
    */
@@ -727,7 +752,7 @@ public final class MoreTypes {
   }
 
   //
-  // visitUnionType would go here, but it is a 1.7 API.
+  // visitUnionType would go here, but isn't relevant for annotation processors
   //
 
   /**
@@ -781,7 +806,7 @@ public final class MoreTypes {
     return type.accept(IsTypeVisitor.INSTANCE, null);
   }
 
-  private static final class IsTypeVisitor extends SimpleTypeVisitor6<Boolean, Void> {
+  private static final class IsTypeVisitor extends SimpleTypeVisitor8<Boolean, Void> {
     private static final IsTypeVisitor INSTANCE = new IsTypeVisitor();
 
     @Override
@@ -820,7 +845,7 @@ public final class MoreTypes {
     return type.accept(new IsTypeOf(clazz), null);
   }
 
-  private static final class IsTypeOf extends SimpleTypeVisitor6<Boolean, Void> {
+  private static final class IsTypeOf extends SimpleTypeVisitor8<Boolean, Void> {
     private final Class<?> clazz;
 
     IsTypeOf(Class<?> clazz) {
@@ -838,6 +863,11 @@ public final class MoreTypes {
         return clazz.equals(Void.TYPE);
       }
       throw new IllegalArgumentException(noType + " cannot be represented as a Class<?>.");
+    }
+
+    @Override
+    public Boolean visitError(ErrorType errorType, Void p) {
+      return false;
     }
 
     @Override
@@ -871,48 +901,46 @@ public final class MoreTypes {
 
     @Override
     public Boolean visitDeclared(DeclaredType type, Void ignored) {
-      TypeElement typeElement;
-      try {
-        typeElement = MoreElements.asType(type.asElement());
-      } catch (IllegalArgumentException iae) {
-        throw new IllegalArgumentException(type + " does not represent a class or interface.");
-      }
+      TypeElement typeElement = MoreElements.asType(type.asElement());
       return typeElement.getQualifiedName().contentEquals(clazz.getCanonicalName());
     }
   }
 
   /**
-   * Returns the non-object superclass of the type with the proper type parameters.
-   * An absent Optional is returned if there is no non-Object superclass.
+   * Returns the superclass of {@code type}, with any type parameters bound by {@code type}, or
+   * {@link Optional#absent()} if {@code type} is an interface or {@link Object} or its superclass
+   * is {@link Object}.
    */
-  public static Optional<DeclaredType> nonObjectSuperclass(final Types types, Elements elements,
-      DeclaredType type) {
+  // TODO(bcorso): Remove unused parameter Elements?
+  public static Optional<DeclaredType> nonObjectSuperclass(
+      Types types, Elements elements, DeclaredType type) {
     checkNotNull(types);
-    checkNotNull(elements);
+    checkNotNull(elements); // This is no longer used, but here to avoid changing the API.
     checkNotNull(type);
 
-    final TypeMirror objectType =
-        elements.getTypeElement(Object.class.getCanonicalName()).asType();
-    // It's guaranteed there's only a single CLASS superclass because java doesn't have multiple
-    // class inheritance.
-    TypeMirror superclass =
-        getOnlyElement(
-            FluentIterable.from(types.directSupertypes(type))
-                .filter(
-                    new Predicate<TypeMirror>() {
-                      @Override
-                      public boolean apply(TypeMirror input) {
-                        return input.getKind().equals(TypeKind.DECLARED)
-                            && (MoreElements.asType(MoreTypes.asDeclared(input).asElement()))
-                                .getKind()
-                                .equals(ElementKind.CLASS)
-                            && !types.isSameType(objectType, input);
-                      }
-                    }),
-            null);
-    return superclass != null
-        ? Optional.of(MoreTypes.asDeclared(superclass))
-        : Optional.<DeclaredType>absent();
+    TypeMirror superclassType = asTypeElement(type).getSuperclass();
+    if (!isType(superclassType)) { // type is Object or an interface
+      return Optional.absent();
+    }
+
+    DeclaredType superclass = asDeclared(superclassType);
+    if (isObjectType(superclass)) {
+      return Optional.absent();
+    }
+
+    if (superclass.getTypeArguments().isEmpty()) {
+      return Optional.of(superclass);
+    }
+
+    // In the case where the super class has type parameters, TypeElement#getSuperclass gives
+    // SuperClass<T> rather than SuperClass<Foo>, so use Types#directSupertypes instead. The javadoc
+    // for Types#directSupertypes guarantees that a super class, if it exists, comes before any
+    // interfaces. Thus, we can just get the first element in the list.
+    return Optional.of(asDeclared(types.directSupertypes(type).get(0)));
+  }
+
+  private static boolean isObjectType(DeclaredType type) {
+    return asTypeElement(type).getQualifiedName().contentEquals("java.lang.Object");
   }
 
   /**
@@ -922,8 +950,8 @@ public final class MoreTypes {
    * {@code container} of type {@code Set<String>}, and a variable corresponding to the {@code E e}
    * parameter in the {@code Set.add(E e)} method, this will return a TypeMirror for {@code String}.
    */
-  public static TypeMirror asMemberOf(Types types, DeclaredType container,
-      VariableElement variable) {
+  public static TypeMirror asMemberOf(
+      Types types, DeclaredType container, VariableElement variable) {
     if (variable.getKind().equals(ElementKind.PARAMETER)) {
       ExecutableElement methodOrConstructor =
           MoreElements.asExecutable(variable.getEnclosingElement());
@@ -946,7 +974,7 @@ public final class MoreTypes {
     }
   }
 
-  private abstract static class CastingTypeVisitor<T> extends SimpleTypeVisitor6<T, Void> {
+  private abstract static class CastingTypeVisitor<T> extends SimpleTypeVisitor8<T, Void> {
     private final String label;
 
     CastingTypeVisitor(String label) {
@@ -956,6 +984,72 @@ public final class MoreTypes {
     @Override
     protected T defaultAction(TypeMirror e, Void v) {
       throw new IllegalArgumentException(e + " does not represent a " + label);
+    }
+  }
+
+  /**
+   * Returns true if casting {@code Object} to the given type will elicit an unchecked warning from
+   * the compiler. Only type variables and parameterized types such as {@code List<String>} produce
+   * such warnings. There will be no warning if the type's only type parameters are simple
+   * wildcards, as in {@code Map<?, ?>}.
+   */
+  public static boolean isConversionFromObjectUnchecked(TypeMirror type) {
+    return new CastingUncheckedVisitor().visit(type, null);
+  }
+
+  /**
+   * Visitor that tells whether a type is erased, in the sense of {@link #castIsUnchecked}. Each
+   * visitX method returns true if its input parameter is true or if the type being visited is
+   * erased.
+   */
+  private static class CastingUncheckedVisitor extends SimpleTypeVisitor8<Boolean, Void> {
+    CastingUncheckedVisitor() {
+      super(false);
+    }
+
+    @Override
+    public Boolean visitUnknown(TypeMirror t, Void p) {
+      // We don't know whether casting is unchecked for this mysterious type but assume it is,
+      // so we will insert a possibly unnecessary @SuppressWarnings("unchecked").
+      return true;
+    }
+
+    @Override
+    public Boolean visitArray(ArrayType t, Void p) {
+      return visit(t.getComponentType(), p);
+    }
+
+    @Override
+    public Boolean visitDeclared(DeclaredType t, Void p) {
+      return t.getTypeArguments().stream().anyMatch(CastingUncheckedVisitor::uncheckedTypeArgument);
+    }
+
+    @Override
+    public Boolean visitTypeVariable(TypeVariable t, Void p) {
+      return true;
+    }
+
+    // If a type has a type argument, then casting to the type is unchecked, except if the argument
+    // is <?> or <? extends Object>. The same applies to all type arguments, so casting to Map<?, ?>
+    // does not produce an unchecked warning for example.
+    private static boolean uncheckedTypeArgument(TypeMirror arg) {
+      if (arg.getKind().equals(TypeKind.WILDCARD)) {
+        WildcardType wildcard = asWildcard(arg);
+        if (wildcard.getExtendsBound() == null || isJavaLangObject(wildcard.getExtendsBound())) {
+          // This is <?>, unless there's a super bound, in which case it is <? super Foo> and
+          // is erased.
+          return (wildcard.getSuperBound() != null);
+        }
+      }
+      return true;
+    }
+
+    private static boolean isJavaLangObject(TypeMirror type) {
+      if (type.getKind() != TypeKind.DECLARED) {
+        return false;
+      }
+      TypeElement typeElement = asTypeElement(type);
+      return typeElement.getQualifiedName().contentEquals("java.lang.Object");
     }
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Google, Inc.
+ * Copyright 2017 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,12 @@ import javax.annotation.processing.Generated;
 import javax.inject.Inject;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-  )
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class OnlyPrimitivesFactory {
-  @Inject OnlyPrimitivesFactory() {}
+  @Inject
+  OnlyPrimitivesFactory() {}
 
   OnlyPrimitives create(int i, long l) {
     return new OnlyPrimitives(i, l);

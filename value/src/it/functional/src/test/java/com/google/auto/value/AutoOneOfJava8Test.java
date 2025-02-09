@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,8 +41,12 @@ public class AutoOneOfJava8Test {
     @Retention(RetentionPolicy.RUNTIME)
     public @interface Nullable {}
 
-    public enum Kind {THING}
+    public enum Kind {
+      THING
+    }
+
     public abstract Kind kind();
+
     public abstract String thing();
 
     public static EqualsNullable ofThing(String thing) {
@@ -62,16 +66,11 @@ public class AutoOneOfJava8Test {
    */
   @Test
   public void equalsNullable() throws ReflectiveOperationException {
-    if (BugDetector.typeVisitorDropsAnnotations()) {
-      System.err.println("TYPE VISITORS DO NOT SEE TYPE ANNOTATIONS, SKIPPING TEST");
-      return;
-    }
     EqualsNullable x = EqualsNullable.ofThing("foo");
     Class<? extends EqualsNullable> c = x.getClass();
     Method equals = c.getMethod("equals", Object.class);
-    assertThat(equals.getDeclaringClass()).isNotSameAs(EqualsNullable.class);
+    assertThat(equals.getDeclaringClass()).isNotSameInstanceAs(EqualsNullable.class);
     AnnotatedType parameterType = equals.getAnnotatedParameterTypes()[0];
-    assertThat(parameterType.isAnnotationPresent(EqualsNullable.Nullable.class))
-        .isTrue();
+    assertThat(parameterType.isAnnotationPresent(EqualsNullable.Nullable.class)).isTrue();
   }
 }

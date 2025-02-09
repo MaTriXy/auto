@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,9 +23,12 @@ package com.google.auto.value.processor;
 final class ClassNames {
   private ClassNames() {}
 
-  static final String AUTO_ANNOTATION_NAME = "com.google.auto.value.AutoAnnotation";
-  static final String AUTO_ONE_OF_NAME = "com.google.auto.value.AutoOneOf";
-  static final String AUTO_VALUE_NAME = "com.google.auto.value.AutoValue";
+  static final String AUTO_VALUE_PACKAGE_NAME = "com.google.auto.value.";
+  static final String AUTO_ANNOTATION_NAME = AUTO_VALUE_PACKAGE_NAME + "AutoAnnotation";
+  static final String AUTO_ONE_OF_NAME = AUTO_VALUE_PACKAGE_NAME + "AutoOneOf";
+  static final String AUTO_VALUE_NAME = AUTO_VALUE_PACKAGE_NAME + "AutoValue";
   static final String AUTO_VALUE_BUILDER_NAME = AUTO_VALUE_NAME + ".Builder";
+  static final String AUTO_BUILDER_NAME = AUTO_VALUE_PACKAGE_NAME + "AutoBuilder";
   static final String COPY_ANNOTATIONS_NAME = AUTO_VALUE_NAME + ".CopyAnnotations";
+  static final String KOTLIN_METADATA_NAME = "kot".concat("lin.Metadata"); // defeat shading
 }

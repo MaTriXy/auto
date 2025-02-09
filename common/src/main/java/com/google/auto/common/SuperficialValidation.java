@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.google.auto.common;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.AnnotationValueVisitor;
@@ -35,9 +36,9 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVisitor;
 import javax.lang.model.type.WildcardType;
-import javax.lang.model.util.AbstractElementVisitor6;
-import javax.lang.model.util.SimpleAnnotationValueVisitor6;
-import javax.lang.model.util.SimpleTypeVisitor6;
+import javax.lang.model.util.AbstractElementVisitor8;
+import javax.lang.model.util.SimpleAnnotationValueVisitor8;
+import javax.lang.model.util.SimpleTypeVisitor8;
 
 /**
  * A utility class that traverses {@link Element} instances and ensures that all type information
@@ -46,34 +47,37 @@ import javax.lang.model.util.SimpleTypeVisitor6;
  * @author Gregory Kick
  */
 public final class SuperficialValidation {
+  /**
+   * Returns true if all of the given elements return true from {@link #validateElement(Element)}.
+   */
   public static boolean validateElements(Iterable<? extends Element> elements) {
-    for (Element element : elements) {
-      if (!validateElement(element)) {
-        return false;
-      }
-    }
-    return true;
+    return StreamSupport.stream(elements.spliterator(), false)
+        .allMatch(SuperficialValidation::validateElement);
   }
 
   private static final ElementVisitor<Boolean, Void> ELEMENT_VALIDATING_VISITOR =
-      new AbstractElementVisitor6<Boolean, Void>() {
-        @Override public Boolean visitPackage(PackageElement e, Void p) {
+      new AbstractElementVisitor8<Boolean, Void>() {
+        @Override
+        public Boolean visitPackage(PackageElement e, Void p) {
           // don't validate enclosed elements because it will return types in the package
           return validateAnnotations(e.getAnnotationMirrors());
         }
 
-        @Override public Boolean visitType(TypeElement e, Void p) {
+        @Override
+        public Boolean visitType(TypeElement e, Void p) {
           return isValidBaseElement(e)
               && validateElements(e.getTypeParameters())
               && validateTypes(e.getInterfaces())
               && validateType(e.getSuperclass());
         }
 
-        @Override public Boolean visitVariable(VariableElement e, Void p) {
+        @Override
+        public Boolean visitVariable(VariableElement e, Void p) {
           return isValidBaseElement(e);
         }
 
-        @Override public Boolean visitExecutable(ExecutableElement e, Void p) {
+        @Override
+        public Boolean visitExecutable(ExecutableElement e, Void p) {
           AnnotationValue defaultValue = e.getDefaultValue();
           return isValidBaseElement(e)
               && (defaultValue == null || validateAnnotationValue(defaultValue, e.getReturnType()))
@@ -83,17 +87,24 @@ public final class SuperficialValidation {
               && validateElements(e.getParameters());
         }
 
-        @Override public Boolean visitTypeParameter(TypeParameterElement e, Void p) {
-          return isValidBaseElement(e)
-              && validateTypes(e.getBounds());
+        @Override
+        public Boolean visitTypeParameter(TypeParameterElement e, Void p) {
+          return isValidBaseElement(e) && validateTypes(e.getBounds());
         }
 
-        @Override public Boolean visitUnknown(Element e, Void p) {
+        @Override
+        public Boolean visitUnknown(Element e, Void p) {
           // just assume that unknown elements are OK
           return true;
         }
       };
 
+  /**
+   * Returns true if all types referenced by the given element are defined. The exact meaning of
+   * this depends on the kind of element. For packages, it means that all annotations on the package
+   * are fully defined. For other element kinds, it means that types referenced by the element,
+   * anything it contains, and any of its annotations element are all defined.
+   */
   public static boolean validateElement(Element element) {
     return element.accept(ELEMENT_VALIDATING_VISITOR, null);
   }
@@ -119,7 +130,7 @@ public final class SuperficialValidation {
    * bounds.
    */
   private static final TypeVisitor<Boolean, Void> TYPE_VALIDATING_VISITOR =
-      new SimpleTypeVisitor6<Boolean, Void>() {
+      new SimpleTypeVisitor8<Boolean, Void>() {
         @Override
         protected Boolean defaultAction(TypeMirror t, Void p) {
           return true;
@@ -163,7 +174,13 @@ public final class SuperficialValidation {
         }
       };
 
-  private static boolean validateType(TypeMirror type) {
+  /**
+   * Returns true if the given type is fully defined. This means that the type itself is defined, as
+   * are any types it references, such as any type arguments or type bounds. For an {@link
+   * ExecutableType}, the parameter and return types must be fully defined, as must types declared
+   * in a {@code throws} clause or in the bounds of any type parameters.
+   */
+  public static boolean validateType(TypeMirror type) {
     return type.accept(TYPE_VALIDATING_VISITOR, null);
   }
 
@@ -182,31 +199,31 @@ public final class SuperficialValidation {
         && validateAnnotationValues(annotationMirror.getElementValues());
   }
 
-  @SuppressWarnings("unused")
   private static boolean validateAnnotationValues(
       Map<? extends ExecutableElement, ? extends AnnotationValue> valueMap) {
-    for (Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> valueEntry :
-        valueMap.entrySet()) {
-      TypeMirror expectedType = valueEntry.getKey().getReturnType();
-      if (!validateAnnotationValue(valueEntry.getValue(), expectedType)) {
-        return false;
-      }
-    }
-    return true;
+    return valueMap.entrySet().stream()
+        .allMatch(
+            valueEntry -> {
+              TypeMirror expectedType = valueEntry.getKey().getReturnType();
+              return validateAnnotationValue(valueEntry.getValue(), expectedType);
+            });
   }
 
   private static final AnnotationValueVisitor<Boolean, TypeMirror> VALUE_VALIDATING_VISITOR =
-      new SimpleAnnotationValueVisitor6<Boolean, TypeMirror>() {
-        @Override protected Boolean defaultAction(Object o, TypeMirror expectedType) {
+      new SimpleAnnotationValueVisitor8<Boolean, TypeMirror>() {
+        @Override
+        protected Boolean defaultAction(Object o, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(o.getClass(), expectedType);
         }
 
-        @Override public Boolean visitUnknown(AnnotationValue av, TypeMirror expectedType) {
+        @Override
+        public Boolean visitUnknown(AnnotationValue av, TypeMirror expectedType) {
           // just take the default action for the unknown
           return defaultAction(av, expectedType);
         }
 
-        @Override public Boolean visitAnnotation(AnnotationMirror a, TypeMirror expectedType) {
+        @Override
+        public Boolean visitAnnotation(AnnotationMirror a, TypeMirror expectedType) {
           return MoreTypes.equivalence().equivalent(a.getAnnotationType(), expectedType)
               && validateAnnotation(a);
         }
@@ -216,17 +233,8 @@ public final class SuperficialValidation {
           if (!expectedType.getKind().equals(TypeKind.ARRAY)) {
             return false;
           }
-          try {
-            expectedType = MoreTypes.asArray(expectedType).getComponentType();
-          } catch (IllegalArgumentException e) {
-            return false; // Not an array expected, ergo invalid.
-          }
-          for (AnnotationValue value : values) {
-            if (!value.accept(this, expectedType)) {
-              return false;
-            }
-          }
-          return true;
+          TypeMirror componentType = MoreTypes.asArray(expectedType).getComponentType();
+          return values.stream().allMatch(value -> value.accept(this, componentType));
         }
 
         @Override
@@ -235,7 +243,8 @@ public final class SuperficialValidation {
               && validateElement(enumConstant);
         }
 
-        @Override public Boolean visitType(TypeMirror type, TypeMirror ignored) {
+        @Override
+        public Boolean visitType(TypeMirror type, TypeMirror ignored) {
           // We could check assignability here, but would require a Types instance. Since this
           // isn't really the sort of thing that shows up in a bad AST from upstream compilation
           // we ignore the expected type and just validate the type.  It might be wrong, but
@@ -243,35 +252,43 @@ public final class SuperficialValidation {
           return validateType(type);
         }
 
-        @Override public Boolean visitBoolean(boolean b, TypeMirror expectedType) {
+        @Override
+        public Boolean visitBoolean(boolean b, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Boolean.TYPE, expectedType);
         }
 
-        @Override public Boolean visitByte(byte b, TypeMirror expectedType) {
+        @Override
+        public Boolean visitByte(byte b, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Byte.TYPE, expectedType);
         }
 
-        @Override public Boolean visitChar(char c, TypeMirror expectedType) {
+        @Override
+        public Boolean visitChar(char c, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Character.TYPE, expectedType);
         }
 
-        @Override public Boolean visitDouble(double d, TypeMirror expectedType) {
+        @Override
+        public Boolean visitDouble(double d, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Double.TYPE, expectedType);
         }
 
-        @Override public Boolean visitFloat(float f, TypeMirror expectedType) {
+        @Override
+        public Boolean visitFloat(float f, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Float.TYPE, expectedType);
         }
 
-        @Override public Boolean visitInt(int i, TypeMirror expectedType) {
+        @Override
+        public Boolean visitInt(int i, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Integer.TYPE, expectedType);
         }
 
-        @Override public Boolean visitLong(long l, TypeMirror expectedType) {
+        @Override
+        public Boolean visitLong(long l, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Long.TYPE, expectedType);
         }
 
-        @Override public Boolean visitShort(short s, TypeMirror expectedType) {
+        @Override
+        public Boolean visitShort(short s, TypeMirror expectedType) {
           return MoreTypes.isTypeOf(Short.TYPE, expectedType);
         }
       };
@@ -280,4 +297,6 @@ public final class SuperficialValidation {
       AnnotationValue annotationValue, TypeMirror expectedType) {
     return annotationValue.accept(VALUE_VALIDATING_VISITOR, expectedType);
   }
+
+  private SuperficialValidation() {}
 }

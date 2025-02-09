@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Google, Inc.
+ * Copyright 2017 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ public final class GeneratedAnnotationSpecs {
   private GeneratedAnnotationSpecs() {}
 
   /**
-   * Returns {@code @Generated("processorClass"} if either {@code
+   * Returns {@code @Generated("processorClass")} if either {@code
    * javax.annotation.processing.Generated} or {@code javax.annotation.Generated} is {@linkplain
    * GeneratedAnnotations#generatedAnnotation(Elements) available at compile time}.
    *
@@ -41,7 +41,7 @@ public final class GeneratedAnnotationSpecs {
   }
 
   /**
-   * Returns {@code @Generated(value = "processorClass", comments = "comments"} if either {@code
+   * Returns {@code @Generated(value = "processorClass", comments = "comments")} if either {@code
    * javax.annotation.processing.Generated} or {@code javax.annotation.Generated} is {@linkplain
    * GeneratedAnnotations#generatedAnnotation(Elements) available at compile time}.
    *
@@ -54,17 +54,8 @@ public final class GeneratedAnnotationSpecs {
         .map(annotation -> annotation.addMember("comments", "$S", comments).build());
   }
 
-  private static Optional<AnnotationSpec.Builder> generatedAnnotationSpecBuilder(
-      Elements elements, Class<?> processorClass) {
-    return GeneratedAnnotations.generatedAnnotation(elements)
-        .map(
-            generated ->
-                AnnotationSpec.builder(ClassName.get(generated))
-                    .addMember("value", "$S", processorClass.getCanonicalName()));
-  }
-
   /**
-   * Returns {@code @Generated("processorClass"} for the target {@code SourceVersion}.
+   * Returns {@code @Generated("processorClass")} for the target {@code SourceVersion}.
    *
    * <p>Returns {@code javax.annotation.processing.Generated} for JDK 9 and newer, {@code
    * javax.annotation.Generated} for earlier releases, and Optional#empty()} if the annotation is
@@ -77,7 +68,7 @@ public final class GeneratedAnnotationSpecs {
   }
 
   /**
-   * Returns {@code @Generated(value = "processorClass", comments = "comments"} for the target
+   * Returns {@code @Generated(value = "processorClass", comments = "comments")} for the target
    * {@code SourceVersion}.
    *
    * <p>Returns {@code javax.annotation.processing.Generated} for JDK 9 and newer, {@code
@@ -88,6 +79,15 @@ public final class GeneratedAnnotationSpecs {
       Elements elements, SourceVersion sourceVersion, Class<?> processorClass, String comments) {
     return generatedAnnotationSpecBuilder(elements, sourceVersion, processorClass)
         .map(annotation -> annotation.addMember("comments", "$S", comments).build());
+  }
+
+  private static Optional<AnnotationSpec.Builder> generatedAnnotationSpecBuilder(
+      Elements elements, Class<?> processorClass) {
+    return GeneratedAnnotations.generatedAnnotation(elements)
+        .map(
+            generated ->
+                AnnotationSpec.builder(ClassName.get(generated))
+                    .addMember("value", "$S", processorClass.getCanonicalName()));
   }
 
   private static Optional<AnnotationSpec.Builder> generatedAnnotationSpecBuilder(

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,21 @@
  */
 package com.google.auto.value.processor;
 
+import com.google.auto.common.MoreTypes;
+import com.google.auto.value.processor.MissingTypes.MissingTypeException;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.SimpleAnnotationValueVisitor8;
 import javax.tools.Diagnostic;
@@ -34,16 +40,16 @@ import javax.tools.Diagnostic;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 final class AnnotationOutput {
-  private AnnotationOutput() {}  // There are no instances of this class.
+  private AnnotationOutput() {} // There are no instances of this class.
 
   /**
-   * Visitor that produces a string representation of an annotation value, suitable for inclusion
-   * in a Java source file as an annotation member or as the initializer of a variable of the
+   * Visitor that produces a string representation of an annotation value, suitable for inclusion in
+   * a Java source file as an annotation member or as the initializer of a variable of the
    * appropriate type. The syntax for the two is the same except for annotation members that are
    * themselves annotations. Within an annotation, an annotation member can be written as
-   * {@code @NestedAnnotation(...)}, while in an initializer it must be written as an object,
-   * for example the construction of an {@code @AutoAnnotation} class. That's why we have this
-   * abstract class and two concrete subclasses.
+   * {@code @NestedAnnotation(...)}, while in an initializer it must be written as an object, for
+   * example the construction of an {@code @AutoAnnotation} class. That's why we have this abstract
+   * class and two concrete subclasses.
    */
   private abstract static class SourceFormVisitor
       extends SimpleAnnotationValueVisitor8<Void, StringBuilder> {
@@ -128,22 +134,25 @@ final class AnnotationOutput {
   private static class InitializerSourceFormVisitor extends SourceFormVisitor {
     private final ProcessingEnvironment processingEnv;
     private final String memberName;
-    private final Element context;
+    private final Element errorContext;
 
     InitializerSourceFormVisitor(
-        ProcessingEnvironment processingEnv, String memberName, Element context) {
+        ProcessingEnvironment processingEnv, String memberName, Element errorContext) {
       this.processingEnv = processingEnv;
       this.memberName = memberName;
-      this.context = context;
+      this.errorContext = errorContext;
     }
 
     @Override
     public Void visitAnnotation(AnnotationMirror a, StringBuilder sb) {
-      processingEnv.getMessager().printMessage(
-          Diagnostic.Kind.ERROR,
-          "@AutoAnnotation cannot yet supply a default value for annotation-valued member '"
-              + memberName + "'",
-          context);
+      processingEnv
+          .getMessager()
+          .printMessage(
+              Diagnostic.Kind.ERROR,
+              "@AutoAnnotation cannot yet supply a default value for annotation-valued member '"
+                  + memberName
+                  + "'",
+              errorContext);
       sb.append("null");
       return null;
     }
@@ -151,21 +160,48 @@ final class AnnotationOutput {
 
   private static class AnnotationSourceFormVisitor extends SourceFormVisitor {
     @Override
+    public Void visitArray(List<? extends AnnotationValue> values, StringBuilder sb) {
+      if (values.size() == 1) {
+        // We can shorten @Foo(a = {23}) to @Foo(a = 23). For the specific case where `a` is
+        // actually `value`, we'll already have shortened that in visitAnnotation, so effectively we
+        // go from @Foo(value = {23}) to @Foo({23}) to @Foo(23).
+        visit(values.get(0), sb);
+        return null;
+      }
+      return super.visitArray(values, sb);
+    }
+
+    @Override
     public Void visitAnnotation(AnnotationMirror a, StringBuilder sb) {
       sb.append('@').append(TypeEncoder.encode(a.getAnnotationType()));
-      Map<ExecutableElement, AnnotationValue> map =
-          ImmutableMap.<ExecutableElement, AnnotationValue>copyOf(a.getElementValues());
+      ImmutableMap<ExecutableElement, AnnotationValue> map =
+          ImmutableMap.copyOf(a.getElementValues());
       if (!map.isEmpty()) {
         sb.append('(');
-        String sep = "";
-        for (Map.Entry<ExecutableElement, AnnotationValue> entry : map.entrySet()) {
-          sb.append(sep).append(entry.getKey().getSimpleName()).append(" = ");
-          sep = ", ";
-          this.visit(entry.getValue(), sb);
+        Optional<AnnotationValue> shortForm = shortForm(map);
+        if (shortForm.isPresent()) {
+          this.visit(shortForm.get(), sb);
+        } else {
+          String sep = "";
+          for (Map.Entry<ExecutableElement, AnnotationValue> entry : map.entrySet()) {
+            sb.append(sep).append(entry.getKey().getSimpleName()).append(" = ");
+            sep = ", ";
+            this.visit(entry.getValue(), sb);
+          }
         }
         sb.append(')');
       }
       return null;
+    }
+
+    // We can shorten @Annot(value = 23) to @Annot(23).
+    private static Optional<AnnotationValue> shortForm(
+        Map<ExecutableElement, AnnotationValue> values) {
+      if (values.size() == 1
+          && Iterables.getOnlyElement(values.keySet()).getSimpleName().contentEquals("value")) {
+        return Optional.of(Iterables.getOnlyElement(values.values()));
+      }
+      return Optional.empty();
     }
   }
 
@@ -177,9 +213,9 @@ final class AnnotationOutput {
       AnnotationValue annotationValue,
       ProcessingEnvironment processingEnv,
       String memberName,
-      Element context) {
+      Element errorContext) {
     SourceFormVisitor visitor =
-        new InitializerSourceFormVisitor(processingEnv, memberName, context);
+        new InitializerSourceFormVisitor(processingEnv, memberName, errorContext);
     StringBuilder sb = new StringBuilder();
     visitor.visit(annotationValue, sb);
     return sb.toString();
@@ -190,9 +226,57 @@ final class AnnotationOutput {
    * Java source file to reproduce the annotation in source form.
    */
   static String sourceFormForAnnotation(AnnotationMirror annotationMirror) {
+    // If a value in the annotation is a reference to a class constant and that class constant is
+    // undefined, javac unhelpfully converts it into a string "<error>" and visits that instead. We
+    // want to catch this case and defer processing to allow the class to be defined by another
+    // annotation processor. So we look for annotation elements whose type is Class but whose
+    // reported value is a string. Unfortunately we can't extract the ErrorType corresponding to the
+    // missing class portably. With javac, the AttributeValue is a
+    // com.sun.tools.javac.code.Attribute.UnresolvedClass, which has a public field classType that
+    // is the ErrorType we need, but obviously that's nonportable and fragile.
+    validateClassValues(annotationMirror);
     StringBuilder sb = new StringBuilder();
     new AnnotationSourceFormVisitor().visitAnnotation(annotationMirror, sb);
     return sb.toString();
+  }
+
+  /**
+   * Throws an exception if this annotation contains a value for a Class element that is not
+   * actually a type. The assumption is that the value is the string {@code "<error>"} which javac
+   * presents when a Class value is an undefined type.
+   */
+  private static void validateClassValues(AnnotationMirror annotationMirror) {
+    // A class literal can appear in three places:
+    // * for an element of type Class, for example @SomeAnnotation(Foo.class);
+    // * for an element of type Class[], for example @SomeAnnotation({Foo.class, Bar.class});
+    // * inside a nested annotation, for example @SomeAnnotation(@Nested(Foo.class)).
+    // These three possibilities are the three branches of the if/else chain below.
+    annotationMirror
+        .getElementValues()
+        .forEach(
+            (method, value) -> {
+              TypeMirror type = method.getReturnType();
+              if (isJavaLangClass(type) && !(value.getValue() instanceof TypeMirror)) {
+                throw new MissingTypeException(null);
+              } else if (type.getKind().equals(TypeKind.ARRAY)
+                  && isJavaLangClass(MoreTypes.asArray(type).getComponentType())
+                  && value.getValue() instanceof List<?>) {
+                @SuppressWarnings("unchecked") // a List can only be a List<AnnotationValue> here
+                List<AnnotationValue> values = (List<AnnotationValue>) value.getValue();
+                if (values.stream().anyMatch(av -> !(av.getValue() instanceof TypeMirror))) {
+                  throw new MissingTypeException(null);
+                }
+              } else if (type.getKind().equals(TypeKind.DECLARED)
+                  && MoreTypes.asElement(type).getKind().equals(ElementKind.ANNOTATION_TYPE)
+                  && value.getValue() instanceof AnnotationMirror) {
+                validateClassValues((AnnotationMirror) value.getValue());
+              }
+            });
+  }
+
+  private static boolean isJavaLangClass(TypeMirror type) {
+    return type.getKind().equals(TypeKind.DECLARED)
+        && MoreTypes.asTypeElement(type).getQualifiedName().contentEquals("java.lang.Class");
   }
 
   private static StringBuilder appendQuoted(StringBuilder sb, String s) {
@@ -211,29 +295,29 @@ final class AnnotationOutput {
 
   private static void appendEscaped(StringBuilder sb, char c) {
     switch (c) {
-    case '\\':
-    case '"':
-    case '\'':
-      sb.append('\\').append(c);
-      break;
-    case '\n':
-      sb.append("\\n");
-      break;
-    case '\r':
-      sb.append("\\r");
-      break;
-    case '\t':
-      sb.append("\\t");
-      break;
-    default:
-      if (c < 0x20) {
-        sb.append(String.format("\\%03o", (int) c));
-      } else if (c < 0x7f || Character.isLetter(c)) {
-        sb.append(c);
-      } else {
-        sb.append(String.format("\\u%04x", (int) c));
-      }
-      break;
+      case '\\':
+      case '"':
+      case '\'':
+        sb.append('\\').append(c);
+        break;
+      case '\n':
+        sb.append("\\n");
+        break;
+      case '\r':
+        sb.append("\\r");
+        break;
+      case '\t':
+        sb.append("\\t");
+        break;
+      default:
+        if (c < 0x20) {
+          sb.append(String.format("\\%03o", (int) c));
+        } else if (c < 0x7f || Character.isLetter(c)) {
+          sb.append(c);
+        } else {
+          sb.append(String.format("\\u%04x", (int) c));
+        }
+        break;
     }
   }
 }

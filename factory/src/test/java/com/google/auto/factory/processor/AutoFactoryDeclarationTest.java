@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,8 @@ import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
 public class AutoFactoryDeclarationTest {
-  @Test public void identifiers() {
+  @Test
+  public void identifiers() {
     assertThat(isValidIdentifier("String")).isTrue();
     assertThat(isValidIdentifier("9CantStartWithNumber")).isFalse();
     assertThat(isValidIdentifier("enum")).isFalse();

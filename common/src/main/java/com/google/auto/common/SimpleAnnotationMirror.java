@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Google, Inc.
+ * Copyright 2017 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.google.auto.common;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static java.util.Objects.requireNonNull;
 import static javax.lang.model.util.ElementFilter.methodsIn;
 
 import com.google.common.base.Joiner;
@@ -32,6 +33,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A simple implementation of the {@link AnnotationMirror} interface.
@@ -65,7 +67,7 @@ public final class SimpleAnnotationMirror implements AnnotationMirror {
         missingMembers.add(memberName);
       }
     }
-    
+
     checkArgument(
         unusedValues.isEmpty(),
         "namedValues has entries for members that are not in %s: %s",
@@ -77,9 +79,12 @@ public final class SimpleAnnotationMirror implements AnnotationMirror {
     this.annotationType = annotationType;
     this.namedValues = ImmutableMap.copyOf(namedValues);
     this.elementValues =
-        methodsIn(annotationType.getEnclosedElements())
-            .stream()
-            .collect(toImmutableMap(e -> e, e -> values.get(e.getSimpleName().toString())));
+        methodsIn(annotationType.getEnclosedElements()).stream()
+            .collect(
+                toImmutableMap(
+                    e -> e,
+                    // requireNonNull is safe because we inserted into `values` for all methods.
+                    e -> requireNonNull(values.get(e.getSimpleName().toString()))));
   }
 
   /**
@@ -123,7 +128,7 @@ public final class SimpleAnnotationMirror implements AnnotationMirror {
   }
 
   @Override
-  public boolean equals(Object other) {
+  public boolean equals(@Nullable Object other) {
     return other instanceof AnnotationMirror
         && AnnotationMirrors.equivalence().equivalent(this, (AnnotationMirror) other);
   }

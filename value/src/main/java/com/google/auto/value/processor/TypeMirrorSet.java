@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package com.google.auto.value.processor;
 
 import com.google.auto.common.MoreTypes;
 import com.google.common.base.Equivalence;
-import com.google.common.base.Equivalence.Wrapper;
 import com.google.common.collect.ImmutableList;
 import java.util.AbstractSet;
 import java.util.Collection;
@@ -32,11 +31,9 @@ import javax.lang.model.type.TypeMirror;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 class TypeMirrorSet extends AbstractSet<TypeMirror> {
-  private final Set<Equivalence.Wrapper<TypeMirror>> wrappers =
-      new LinkedHashSet<Wrapper<TypeMirror>>();
+  private final Set<Equivalence.Wrapper<TypeMirror>> wrappers = new LinkedHashSet<>();
 
-  TypeMirrorSet() {
-  }
+  TypeMirrorSet() {}
 
   TypeMirrorSet(Collection<? extends TypeMirror> types) {
     addAll(types);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  * Copyright (C) 2013 Square, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,8 +16,11 @@
  */
 package com.google.auto.common;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static javax.lang.model.element.ElementKind.PACKAGE;
+import static javax.lang.model.element.Modifier.STATIC;
 
+import com.google.auto.common.Overrides.ExplicitOverrides;
 import com.google.common.annotations.Beta;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
@@ -36,12 +39,13 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.ElementFilter;
 import javax.lang.model.util.Elements;
-import javax.lang.model.util.SimpleElementVisitor6;
+import javax.lang.model.util.SimpleElementVisitor8;
 import javax.lang.model.util.Types;
 
 /**
@@ -128,6 +132,33 @@ public final class MoreElements {
     return element.accept(TypeElementVisitor.INSTANCE, null);
   }
 
+  /**
+   * Returns the given {@link Element} instance as {@link TypeParameterElement}.
+   *
+   * <p>This method is functionally equivalent to an {@code instanceof} check and a cast, but should
+   * always be used over that idiom as instructed in the documentation for {@link Element}.
+   *
+   * @throws NullPointerException if {@code element} is {@code null}
+   * @throws IllegalArgumentException if {@code element} isn't a {@link TypeParameterElement}.
+   */
+  public static TypeParameterElement asTypeParameter(Element element) {
+    return element.accept(TypeParameterElementVisitor.INSTANCE, null);
+  }
+
+  private static final class TypeParameterElementVisitor
+      extends CastingElementVisitor<TypeParameterElement> {
+    private static final TypeParameterElementVisitor INSTANCE = new TypeParameterElementVisitor();
+
+    TypeParameterElementVisitor() {
+      super("type parameter element");
+    }
+
+    @Override
+    public TypeParameterElement visitTypeParameter(TypeParameterElement e, Void ignore) {
+      return e;
+    }
+  }
+
   private static final class VariableElementVisitor extends CastingElementVisitor<VariableElement> {
     private static final VariableElementVisitor INSTANCE = new VariableElementVisitor();
 
@@ -182,15 +213,36 @@ public final class MoreElements {
   }
 
   /**
-   * Returns {@code true} iff the given element has an {@link AnnotationMirror} whose
-   * {@linkplain AnnotationMirror#getAnnotationType() annotation type} has the same canonical name
-   * as that of {@code annotationClass}. This method is a safer alternative to calling
-   * {@link Element#getAnnotation} and checking for {@code null} as it avoids any interaction with
+   * Returns {@code true} iff the given element has an {@link AnnotationMirror} whose {@linkplain
+   * AnnotationMirror#getAnnotationType() annotation type} has the same canonical name as that of
+   * {@code annotationClass}. This method is a safer alternative to calling {@link
+   * Element#getAnnotation} and checking for {@code null} as it avoids any interaction with
    * annotation proxies.
    */
-  public static boolean isAnnotationPresent(Element element,
-      Class<? extends Annotation> annotationClass) {
+  public static boolean isAnnotationPresent(
+      Element element, Class<? extends Annotation> annotationClass) {
     return getAnnotationMirror(element, annotationClass).isPresent();
+  }
+
+  /**
+   * Returns {@code true} iff the given element has an {@link AnnotationMirror} whose {@linkplain
+   * AnnotationMirror#getAnnotationType() annotation type} has the same fully qualified name as that
+   * of {@code annotation}. This method is a safer alternative to calling {@link
+   * Element#getAnnotation} and checking for {@code null} as it avoids any interaction with
+   * annotation proxies.
+   */
+  public static boolean isAnnotationPresent(Element element, TypeElement annotation) {
+    return getAnnotationMirror(element, annotation).isPresent();
+  }
+
+  /**
+   * Returns {@code true} iff the given element has an {@link AnnotationMirror} whose {@linkplain
+   * AnnotationMirror#getAnnotationType() annotation type} has {@code annotationName} as its
+   * canonical name. This method is a safer alternative to calling {@link Element#getAnnotation} and
+   * checking for {@code null} as it avoids any interaction with annotation proxies.
+   */
+  public static boolean isAnnotationPresent(Element element, String annotationName) {
+    return getAnnotationMirror(element, annotationName).isPresent();
   }
 
   /**
@@ -199,12 +251,42 @@ public final class MoreElements {
    * safer alternative to calling {@link Element#getAnnotation} as it avoids any interaction with
    * annotation proxies.
    */
-  public static Optional<AnnotationMirror> getAnnotationMirror(Element element,
-      Class<? extends Annotation> annotationClass) {
-    String annotationClassName = annotationClass.getCanonicalName();
+  public static Optional<AnnotationMirror> getAnnotationMirror(
+      Element element, Class<? extends Annotation> annotationClass) {
+    String name = annotationClass.getCanonicalName();
+    if (name == null) {
+      return Optional.absent();
+    }
+    return getAnnotationMirror(element, name);
+  }
+
+  /**
+   * Returns an {@link AnnotationMirror} for the annotation of type {@code annotation} on {@code
+   * element}, or {@link Optional#absent()} if no such annotation exists. This method is a safer
+   * alternative to calling {@link Element#getAnnotation} as it avoids any interaction with
+   * annotation proxies.
+   */
+  public static Optional<AnnotationMirror> getAnnotationMirror(
+      Element element, TypeElement annotation) {
+    for (AnnotationMirror elementAnnotation : element.getAnnotationMirrors()) {
+      if (elementAnnotation.getAnnotationType().asElement().equals(annotation)) {
+        return Optional.of(elementAnnotation);
+      }
+    }
+    return Optional.absent();
+  }
+
+  /**
+   * Returns an {@link AnnotationMirror} for the annotation whose type's canonical name is on {@code
+   * element}, or {@link Optional#absent()} if no such annotation exists. This method is a safer
+   * alternative to calling {@link Element#getAnnotation} as it avoids any interaction with
+   * annotation proxies.
+   */
+  public static Optional<AnnotationMirror> getAnnotationMirror(
+      Element element, String annotationName) {
     for (AnnotationMirror annotationMirror : element.getAnnotationMirrors()) {
       TypeElement annotationTypeElement = asType(annotationMirror.getAnnotationType().asElement());
-      if (annotationTypeElement.getQualifiedName().contentEquals(annotationClassName)) {
+      if (annotationTypeElement.getQualifiedName().contentEquals(annotationName)) {
         return Optional.of(annotationMirror);
       }
     }
@@ -219,7 +301,7 @@ public final class MoreElements {
    * <p>Here is an example how one could get a List of static methods of a class:
    * <pre>{@code
    * FluentIterable.from(ElementFilter.methodsIn(clazzElement.getEnclosedElements()))
-   *     .filter(MoreElements.hasModifiers(Modifier.STATIC).toList();
+   *     .filter(MoreElements.hasModifiers(Modifier.STATIC)).toList();
    * }</pre>
    */
   public static <T extends Element> Predicate<T> hasModifiers(Modifier... modifiers) {
@@ -227,16 +309,17 @@ public final class MoreElements {
   }
 
   /**
-   * Returns a {@link Predicate} that can be used to filter elements by {@link Modifier}.
-   * The predicate returns {@code true} if the input {@link Element} has all of the given
-   * {@code modifiers}, perhaps in addition to others.
+   * Returns a {@link Predicate} that can be used to filter elements by {@link Modifier}. The
+   * predicate returns {@code true} if the input {@link Element} has all of the given {@code
+   * modifiers}, perhaps in addition to others.
    *
    * <p>Here is an example how one could get a List of methods with certain modifiers of a class:
+   *
    * <pre>{@code
    * Set<Modifier> modifiers = ...;
    * FluentIterable.from(ElementFilter.methodsIn(clazzElement.getEnclosedElements()))
-   *     .filter(MoreElements.hasModifiers(modifiers).toList();}
-   * </pre>
+   *     .filter(MoreElements.hasModifiers(modifiers)).toList();
+   * }</pre>
    */
   public static <T extends Element> Predicate<T> hasModifiers(final Set<Modifier> modifiers) {
     return new Predicate<T>() {
@@ -248,9 +331,9 @@ public final class MoreElements {
   }
 
   /**
-   * Returns the set of all non-private methods from {@code type}, including methods that it
-   * inherits from its ancestors. Inherited methods that are overridden are not included in the
-   * result. So if {@code type} defines {@code public String toString()}, the returned set will
+   * Returns the set of all non-private, non-static methods from {@code type}, including methods
+   * that it inherits from its ancestors. Inherited methods that are overridden are not included in
+   * the result. So if {@code type} defines {@code public String toString()}, the returned set will
    * contain that method, but not the {@code toString()} method defined by {@code Object}.
    *
    * <p>The returned set may contain more than one method with the same signature, if
@@ -258,6 +341,12 @@ public final class MoreElements {
    * inherits from unrelated interfaces {@code One} and {@code Two} which each define
    * {@code void foo();}, and if it does not itself override the {@code foo()} method,
    * then both {@code One.foo()} and {@code Two.foo()} will be in the returned set.
+   *
+   * <p>The order of the returned set is deterministic: within a class or interface, methods are in
+   * the order they appear in the source code; methods in ancestors come before methods in
+   * descendants; methods in interfaces come before methods in classes; and in a class or interface
+   * that has more than one superinterface, the interfaces are in the order of their appearance in
+   * {@code implements} or {@code extends}.
    *
    * @param type the type whose own and inherited methods are to be returned
    * @param elementUtils an {@link Elements} object, typically returned by
@@ -276,9 +365,9 @@ public final class MoreElements {
   }
 
   /**
-   * Returns the set of all non-private methods from {@code type}, including methods that it
-   * inherits from its ancestors. Inherited methods that are overridden are not included in the
-   * result. So if {@code type} defines {@code public String toString()}, the returned set will
+   * Returns the set of all non-private, non-static methods from {@code type}, including methods
+   * that it inherits from its ancestors. Inherited methods that are overridden are not included in
+   * the result. So if {@code type} defines {@code public String toString()}, the returned set will
    * contain that method, but not the {@code toString()} method defined by {@code Object}.
    *
    * <p>The returned set may contain more than one method with the same signature, if
@@ -286,6 +375,12 @@ public final class MoreElements {
    * inherits from unrelated interfaces {@code One} and {@code Two} which each define
    * {@code void foo();}, and if it does not itself override the {@code foo()} method,
    * then both {@code One.foo()} and {@code Two.foo()} will be in the returned set.
+   *
+   * <p>The order of the returned set is deterministic: within a class or interface, methods are in
+   * the order they appear in the source code; methods in ancestors come before methods in
+   * descendants; methods in interfaces come before methods in classes; and in a class or interface
+   * that has more than one superinterface, the interfaces are in the order of their appearance in
+   * {@code implements} or {@code extends}.
    *
    * @param type the type whose own and inherited methods are to be returned
    * @param typeUtils a {@link Types} object, typically returned by
@@ -299,17 +394,80 @@ public final class MoreElements {
    */
   public static ImmutableSet<ExecutableElement> getLocalAndInheritedMethods(
       TypeElement type, Types typeUtils, Elements elementUtils) {
-    // TODO(emcmanus): detect if the Types and Elements are the javac ones, and use
-    //   NativeOverrides if so. We may need to adjust the logic further to avoid the bug
-    //   tested for by MoreElementsTest.getLocalAndInheritedMethods_DaggerBug.
-    Overrides overrides = new Overrides.ExplicitOverrides(typeUtils);
-    return getLocalAndInheritedMethods(type, overrides);
+    return getLocalAndInheritedMethods(type, new ExplicitOverrides(typeUtils));
   }
 
   private static ImmutableSet<ExecutableElement> getLocalAndInheritedMethods(
       TypeElement type, Overrides overrides) {
+    PackageElement pkg = getPackage(type);
+
+    ImmutableSet.Builder<ExecutableElement> methods = ImmutableSet.builder();
+    for (ExecutableElement method : getAllMethods(type, overrides)) {
+      // Filter out all static and non-visible methods.
+      if (!method.getModifiers().contains(STATIC) && methodVisibleFromPackage(method, pkg)) {
+        methods.add(method);
+      }
+    }
+    return methods.build();
+  }
+
+  /**
+   * Tests whether one method, as a member of a given type, overrides another method.
+   *
+   * <p>This method does the same thing as {@link Elements#overrides(ExecutableElement,
+   * ExecutableElement, TypeElement)}, but in a way that is more consistent between compilers, in
+   * particular between javac and ecj (the Eclipse compiler).
+   *
+   * @param overrider the first method, possible overrider
+   * @param overridden the second method, possibly being overridden
+   * @param type the type of which the first method is a member
+   * @return {@code true} if and only if the first method overrides the second
+   */
+  public static boolean overrides(
+      ExecutableElement overrider,
+      ExecutableElement overridden,
+      TypeElement type,
+      Types typeUtils) {
+    return new ExplicitOverrides(typeUtils).overrides(overrider, overridden, type);
+  }
+
+  /**
+   * Returns the set of all methods from {@code type}, including methods that it inherits
+   * from its ancestors. Inherited methods that are overridden are not included in the
+   * result. So if {@code type} defines {@code public String toString()}, the returned set
+   * will contain that method, but not the {@code toString()} method defined by {@code Object}.
+   *
+   * <p>The returned set may contain more than one method with the same signature, if
+   * {@code type} inherits those methods from different ancestors. For example, if it
+   * inherits from unrelated interfaces {@code One} and {@code Two} which each define
+   * {@code void foo();}, and if it does not itself override the {@code foo()} method,
+   * then both {@code One.foo()} and {@code Two.foo()} will be in the returned set.
+   *
+   * <p>The order of the returned set is deterministic: within a class or interface, methods are in
+   * the order they appear in the source code; methods in ancestors come before methods in
+   * descendants; methods in interfaces come before methods in classes; and in a class or interface
+   * that has more than one superinterface, the interfaces are in the order of their appearance in
+   * {@code implements} or {@code extends}.
+   *
+   * @param type the type whose own and inherited methods are to be returned
+   * @param typeUtils a {@link Types} object, typically returned by
+   *     {@link javax.annotation.processing.AbstractProcessor#processingEnv processingEnv}<!--
+   *     -->.{@link javax.annotation.processing.ProcessingEnvironment#getTypeUtils
+   *     getTypeUtils()}
+   * @param elementUtils an {@link Elements} object, typically returned by
+   *     {@link javax.annotation.processing.AbstractProcessor#processingEnv processingEnv}<!--
+   *     -->.{@link javax.annotation.processing.ProcessingEnvironment#getElementUtils
+   *     getElementUtils()}
+   */
+  public static ImmutableSet<ExecutableElement> getAllMethods(
+      TypeElement type, Types typeUtils, Elements elementUtils) {
+    return getAllMethods(type, new ExplicitOverrides(typeUtils));
+  }
+
+  private static ImmutableSet<ExecutableElement> getAllMethods(
+      TypeElement type, Overrides overrides) {
     SetMultimap<String, ExecutableElement> methodMap = LinkedHashMultimap.create();
-    getLocalAndInheritedMethods(getPackage(type), type, methodMap);
+    getAllMethods(type, methodMap);
     // Find methods that are overridden. We do this using `Elements.overrides`, which means
     // that it is inherently a quadratic operation, since we have to compare every method against
     // every other method. We reduce the performance impact by (a) grouping methods by name, since
@@ -325,38 +483,34 @@ public final class MoreElements {
           ExecutableElement methodJ = methodList.get(j);
           if (overrides.overrides(methodJ, methodI, type)) {
             overridden.add(methodI);
+            break;
           }
         }
       }
     }
-    Set<ExecutableElement> methods = new LinkedHashSet<ExecutableElement>(methodMap.values());
-    methods.removeAll(overridden);
-    return ImmutableSet.copyOf(methods);
+    return methodMap.values().stream()
+        .filter(m -> !overridden.contains(m))
+        .collect(toImmutableSet());
   }
 
-  // Add to `methods` the instance methods from `type` that are visible to code in the
-  // package `pkg`. This means all the instance methods from `type` itself and all instance methods
-  // it inherits from its ancestors, except private methods and package-private methods in other
-  // packages. This method does not take overriding into account, so it will add both an ancestor
-  // method and a descendant method that overrides it.
-  // `methods` is a multimap from a method name to all of the methods with that name, including
-  // methods that override or overload one another. Within those methods, those in ancestor types
-  // always precede those in descendant types.
-  private static void getLocalAndInheritedMethods(
-      PackageElement pkg, TypeElement type, SetMultimap<String, ExecutableElement> methods) {
+  // Add to `methods` the static and instance methods from `type`. This means all methods from
+  // `type` itself and all methods it inherits from its ancestors. This method does not take
+  // overriding into account, so it will add both an ancestor method and a descendant method that
+  // overrides it. `methods` is a multimap from a method name to all of the methods with that name,
+  // including methods that override or overload one another. Within those methods, those in
+  // ancestor types always precede those in descendant types.
+  private static void getAllMethods(
+      TypeElement type, SetMultimap<String, ExecutableElement> methods) {
     for (TypeMirror superInterface : type.getInterfaces()) {
-      getLocalAndInheritedMethods(pkg, MoreTypes.asTypeElement(superInterface), methods);
+      getAllMethods(MoreTypes.asTypeElement(superInterface), methods);
     }
     if (type.getSuperclass().getKind() != TypeKind.NONE) {
       // Visit the superclass after superinterfaces so we will always see the implementation of a
       // method after any interfaces that declared it.
-      getLocalAndInheritedMethods(pkg, MoreTypes.asTypeElement(type.getSuperclass()), methods);
+      getAllMethods(MoreTypes.asTypeElement(type.getSuperclass()), methods);
     }
     for (ExecutableElement method : ElementFilter.methodsIn(type.getEnclosedElements())) {
-      if (!method.getModifiers().contains(Modifier.STATIC)
-          && methodVisibleFromPackage(method, pkg)) {
-        methods.put(method.getSimpleName().toString(), method);
-      }
+      methods.put(method.getSimpleName().toString(), method);
     }
   }
 
@@ -375,7 +529,7 @@ public final class MoreElements {
     }
   }
 
-  private abstract static class CastingElementVisitor<T> extends SimpleElementVisitor6<T, Void> {
+  private abstract static class CastingElementVisitor<T> extends SimpleElementVisitor8<T, Void> {
     private final String label;
 
     CastingElementVisitor(String label) {

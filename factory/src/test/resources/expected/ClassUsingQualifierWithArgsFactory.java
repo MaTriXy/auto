@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Google, Inc.
+ * Copyright 2015 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,26 +20,29 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-  )
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class ClassUsingQualifierWithArgsFactory {
   private final Provider<String> providedDepAProvider;
 
-  @Inject ClassUsingQualifierWithArgsFactory(
-      @QualifierWithArgs(name="Fred", count=3) Provider<String> providedDepAProvider) {
-    this.providedDepAProvider = checkNotNull(providedDepAProvider, 1);
+  @Inject
+  ClassUsingQualifierWithArgsFactory(
+      @QualifierWithArgs(name = "Fred", count = 3) Provider<String> providedDepAProvider) {
+    this.providedDepAProvider = checkNotNull(providedDepAProvider, 1, 1);
   }
 
   ClassUsingQualifierWithArgs create() {
-    return new ClassUsingQualifierWithArgs(checkNotNull(providedDepAProvider.get(), 1));
+    return new ClassUsingQualifierWithArgs(checkNotNull(providedDepAProvider.get(), 1, 1));
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

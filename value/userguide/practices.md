@@ -1,12 +1,13 @@
 # Best practices
 
 
-
 ## <a name="interchangeable"></a>"Equals means interchangeable"
 
-Don't use AutoValue to implement value semantics unless you really want value
-semantics. In particular, you should never care about the difference between two
-equal instances.
+Use AutoValue when you want value semantics. Under value semantics, if `a` and
+`b` are instances of the same AutoValue class, and `a.equals(b)`, then `a` and
+`b` are considered interchangeable, and `a` can be used in place of `b`
+everywhere and vice versa. If your AutoValue use case does not satisfy these
+contracts, then AutoValue may not be a good fit.
 
 ## <a name="mutable_properties"></a>Avoid mutable property types
 
@@ -61,8 +62,4 @@ especially helpful if you are *[underriding](howto.md#custom)* `equals`,
 
 ## <a name="constructor"></a>Maybe add an explicit, inaccessible constructor
 
-There are a few small advantages to adding a package-private, parameterless
-constructor to your abstract class. It prevents unwanted subclasses, and
-prevents an undocumented public constructor showing up in your generated API
-documentation. Whether these benefits are worth the extra noise in the file is a
-matter of your judgment.
+There are a few small advantages to adding a package-private, parameterless constructor to your abstract class. It prevents unwanted subclasses, and prevents an undocumented public constructor showing up in your generated API documentation. Whether these benefits are worth the extra noise in the file is a matter of your judgment.

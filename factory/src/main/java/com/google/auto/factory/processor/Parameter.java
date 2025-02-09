@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,20 +18,22 @@ package com.google.auto.factory.processor;
 import static com.google.auto.factory.processor.Mirrors.unwrapOptionalEquivalence;
 import static com.google.auto.factory.processor.Mirrors.wrapOptionalInEquivalence;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 import com.google.auto.common.AnnotationMirrors;
 import com.google.auto.common.MoreElements;
+import com.google.auto.common.MoreTypes;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Equivalence;
-import com.google.common.base.Function;
-import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-import javax.inject.Provider;
+import java.util.stream.Stream;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
@@ -45,23 +47,28 @@ import javax.lang.model.util.Types;
 @AutoValue
 abstract class Parameter {
 
-  static final Function<Parameter, TypeMirror> TYPE = new Function<Parameter, TypeMirror>() {
-      @Override
-      public TypeMirror apply(Parameter parameter) {
-        return parameter.type();
-      }
-    };
-
   /**
-   * The original type of the parameter, while {@code key().type()} erases the wrapped {@link
+   * The original type of the parameter, while {@code key().type()} erases the wrapped {@code
    * Provider}, if any.
    */
-  abstract TypeMirror type();
+  abstract Equivalence.Wrapper<TypeMirror> type();
+
+  boolean isPrimitive() {
+    return type().get().getKind().isPrimitive();
+  }
 
   /** The name of the parameter. */
   abstract String name();
 
   abstract Key key();
+
+  /** Annotations on the parameter (not its type). */
+  abstract ImmutableList<Equivalence.Wrapper<AnnotationMirror>> annotationWrappers();
+
+  ImmutableList<AnnotationMirror> annotations() {
+    return annotationWrappers().stream().map(Equivalence.Wrapper::get).collect(toImmutableList());
+  }
+
   abstract Optional<Equivalence.Wrapper<AnnotationMirror>> nullableWrapper();
 
   Optional<AnnotationMirror> nullable() {
@@ -69,22 +76,30 @@ abstract class Parameter {
   }
 
   private static Parameter forVariableElement(
-      VariableElement variable, TypeMirror type, Types types) {
-    Optional<AnnotationMirror> nullable = Optional.absent();
-    Iterable<? extends AnnotationMirror> annotations =
-        Iterables.concat(variable.getAnnotationMirrors(), type.getAnnotationMirrors());
-    for (AnnotationMirror annotation : annotations) {
-      if (isNullable(annotation)) {
-        nullable = Optional.of(annotation);
-        break;
-      }
-    }
+      VariableElement variable, TypeMirror type, Types types, InjectApi injectApi) {
+    ImmutableList<AnnotationMirror> allAnnotations =
+        Stream.of(variable.getAnnotationMirrors(), type.getAnnotationMirrors())
+            .flatMap(List::stream)
+            .collect(toImmutableList());
+    Optional<AnnotationMirror> nullable =
+        allAnnotations.stream().filter(Parameter::isNullable).findFirst();
+    Key key = Key.create(type, allAnnotations, types, injectApi);
 
-    Key key = Key.create(type, annotations, types);
+    ImmutableSet<Equivalence.Wrapper<AnnotationMirror>> typeAnnotationWrappers =
+        type.getAnnotationMirrors().stream()
+            .map(AnnotationMirrors.equivalence()::wrap)
+            .collect(toImmutableSet());
+    ImmutableList<Equivalence.Wrapper<AnnotationMirror>> parameterAnnotationWrappers =
+        variable.getAnnotationMirrors().stream()
+            .map(AnnotationMirrors.equivalence()::wrap)
+            .filter(annotation -> !typeAnnotationWrappers.contains(annotation))
+            .collect(toImmutableList());
+
     return new AutoValue_Parameter(
-        type,
+        MoreTypes.equivalence().wrap(type),
         variable.getSimpleName().toString(),
         key,
+        parameterAnnotationWrappers,
         wrapOptionalInEquivalence(AnnotationMirrors.equivalence(), nullable));
   }
 
@@ -101,13 +116,15 @@ abstract class Parameter {
   static ImmutableSet<Parameter> forParameterList(
       List<? extends VariableElement> variables,
       List<? extends TypeMirror> variableTypes,
-      Types types) {
+      Types types,
+      InjectApi injectApi) {
     checkArgument(variables.size() == variableTypes.size());
     ImmutableSet.Builder<Parameter> builder = ImmutableSet.builder();
     Set<String> names = Sets.newHashSetWithExpectedSize(variables.size());
     for (int i = 0; i < variables.size(); i++) {
-      Parameter parameter = forVariableElement(variables.get(i), variableTypes.get(i), types);
-      checkArgument(names.add(parameter.name()));
+      Parameter parameter =
+          forVariableElement(variables.get(i), variableTypes.get(i), types, injectApi);
+      checkArgument(names.add(parameter.name()), "Duplicate parameter name: %s", parameter.name());
       builder.add(parameter);
     }
     ImmutableSet<Parameter> parameters = builder.build();
@@ -116,11 +133,11 @@ abstract class Parameter {
   }
 
   static ImmutableSet<Parameter> forParameterList(
-      List<? extends VariableElement> variables, Types types) {
+      List<? extends VariableElement> variables, Types types, InjectApi injectApi) {
     List<TypeMirror> variableTypes = Lists.newArrayListWithExpectedSize(variables.size());
     for (VariableElement var : variables) {
       variableTypes.add(var.asType());
     }
-    return forParameterList(variables, variableTypes, types);
+    return forParameterList(variables, variableTypes, types, injectApi);
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google, Inc.
+ * Copyright 2016 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package tests;
 
+import java.util.Map;
 import javax.annotation.processing.Generated;
 import javax.inject.Inject;
 import javax.inject.Provider;
@@ -22,36 +23,44 @@ import org.checkerframework.checker.nullness.compatqual.NullableDecl;
 import org.checkerframework.checker.nullness.compatqual.NullableType;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-)
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class CheckerFrameworkNullableFactory {
 
-  private final Provider<String> providedNullableDeclProvider;
-  private final Provider<String> providedNullableTypeProvider;
+  private final Provider<String> java_lang_StringProvider;
+
+  private final Provider<Map.@NullableType Entry<?, ?>> providedNestedNullableTypeProvider;
 
   @Inject
   CheckerFrameworkNullableFactory(
-      Provider<String> providedNullableDeclProvider,
-      Provider<String> providedNullableTypeProvider) {
-    this.providedNullableDeclProvider = checkNotNull(providedNullableDeclProvider, 1);
-    this.providedNullableTypeProvider = checkNotNull(providedNullableTypeProvider, 2);
+      Provider<String> java_lang_StringProvider,
+      Provider<Map.@NullableType Entry<?, ?>> providedNestedNullableTypeProvider) {
+    this.java_lang_StringProvider = checkNotNull(java_lang_StringProvider, 1, 2);
+    this.providedNestedNullableTypeProvider =
+        checkNotNull(providedNestedNullableTypeProvider, 2, 2);
   }
 
   CheckerFrameworkNullable create(
-      @NullableDecl String nullableDecl, @NullableType String nullableType) {
+      @NullableDecl String nullableDecl,
+      @NullableType String nullableType,
+      Map.@NullableType Entry<?, ?> nestedNullableType) {
     return new CheckerFrameworkNullable(
         nullableDecl,
-        providedNullableDeclProvider.get(),
+        java_lang_StringProvider.get(),
         nullableType,
-        providedNullableTypeProvider.get());
+        java_lang_StringProvider.get(),
+        nestedNullableType,
+        providedNestedNullableTypeProvider.get());
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google, Inc.
+ * Copyright 2016 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,13 +21,15 @@ import static com.google.auto.factory.processor.Mirrors.wrapOptionalInEquivalenc
 import com.google.auto.common.AnnotationMirrors;
 import com.google.auto.value.AutoValue;
 import com.google.common.base.Equivalence;
-import com.google.common.base.Optional;
+import java.util.Optional;
 import javax.lang.model.element.AnnotationMirror;
 
 @AutoValue
 abstract class ProviderField {
   abstract String name();
+
   abstract Key key();
+
   abstract Optional<Equivalence.Wrapper<AnnotationMirror>> nullableWrapper();
 
   Optional<AnnotationMirror> nullable() {

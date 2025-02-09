@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google, Inc.
+ * Copyright 2016 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,14 @@ import javax.inject.Inject;
 
 @Generated(
     value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-    comments = "https://github.com/google/auto/tree/master/factory"
-)
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class SimpleClassVarargsFactory implements SimpleClassVarargs.InterfaceWithVarargs {
-  @Inject SimpleClassVarargsFactory() {}
+  @Inject
+  SimpleClassVarargsFactory() {}
 
   SimpleClassVarargs create(String... args) {
-    return new SimpleClassVarargs(checkNotNull(args, 1));
+    return new SimpleClassVarargs(checkNotNull(args, 1, 1));
   }
 
   @Override
@@ -34,11 +35,13 @@ final class SimpleClassVarargsFactory implements SimpleClassVarargs.InterfaceWit
     return create(args);
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

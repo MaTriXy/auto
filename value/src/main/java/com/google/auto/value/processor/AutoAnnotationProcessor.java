@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,22 @@ package com.google.auto.value.processor;
 
 import static com.google.auto.common.GeneratedAnnotations.generatedAnnotation;
 import static com.google.auto.value.processor.ClassNames.AUTO_ANNOTATION_NAME;
+import static com.google.common.collect.Maps.immutableEntry;
+import static java.util.Comparator.comparing;
+import static java.util.stream.Collectors.joining;
 
 import com.google.auto.common.MoreElements;
+import com.google.auto.common.MoreTypes;
 import com.google.auto.common.SuperficialValidation;
 import com.google.auto.service.AutoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import com.google.common.primitives.Primitives;
+import com.google.errorprone.annotations.FormatMethod;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.Collection;
@@ -40,11 +47,11 @@ import javax.annotation.processing.Processor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.lang.model.SourceVersion;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
-import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
@@ -58,6 +65,8 @@ import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessor;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessorType;
 
 /**
  * Javac annotation processor (compiler plugin) to generate annotation implementations. User code
@@ -66,19 +75,38 @@ import javax.tools.JavaFileObject;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 @AutoService(Processor.class)
+@IncrementalAnnotationProcessor(IncrementalAnnotationProcessorType.ISOLATING)
 @SupportedAnnotationTypes(AUTO_ANNOTATION_NAME)
 public class AutoAnnotationProcessor extends AbstractProcessor {
   public AutoAnnotationProcessor() {}
+
+  private Elements elementUtils;
+  private Types typeUtils;
+  private TypeMirror javaLangObject;
 
   @Override
   public SourceVersion getSupportedSourceVersion() {
     return SourceVersion.latestSupported();
   }
 
+  @Override
+  public ImmutableSet<String> getSupportedOptions() {
+    return ImmutableSet.of(Nullables.NULLABLE_OPTION);
+  }
+
+  @Override
+  public synchronized void init(ProcessingEnvironment processingEnv) {
+    super.init(processingEnv);
+    this.elementUtils = processingEnv.getElementUtils();
+    this.typeUtils = processingEnv.getTypeUtils();
+    this.javaLangObject = elementUtils.getTypeElement("java.lang.Object").asType();
+  }
+
   /**
-   * Issue a compilation error. This method does not throw an exception, since we want to
-   * continue processing and perhaps report other errors.
+   * Issue a compilation error. This method does not throw an exception, since we want to continue
+   * processing and perhaps report other errors.
    */
+  @FormatMethod
   private void reportError(Element e, String msg, Object... msgParams) {
     String formattedMessage = String.format(msg, msgParams);
     processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, formattedMessage, e);
@@ -88,31 +116,16 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
    * Issue a compilation error and return an exception that, when thrown, will cause the processing
    * of this class to be abandoned. This does not prevent the processing of other classes.
    */
-  private AbortProcessingException abortWithError(String msg, Element e) {
-    reportError(e, msg);
+  @FormatMethod
+  private AbortProcessingException abortWithError(Element e, String msg, Object... msgParams) {
+    reportError(e, msg, msgParams);
     return new AbortProcessingException();
   }
 
-  private Elements elementUtils;
-  private Types typeUtils;
-
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-    elementUtils = processingEnv.getElementUtils();
-    typeUtils = processingEnv.getTypeUtils();
-    boolean claimed =
-        (annotations.size() == 1
-            && annotations
-                .iterator()
-                .next()
-                .getQualifiedName()
-                .contentEquals(AUTO_ANNOTATION_NAME));
-    if (claimed) {
-      process(roundEnv);
-      return true;
-    } else {
-      return false;
-    }
+    process(roundEnv);
+    return false;
   }
 
   private void process(RoundEnvironment roundEnv) {
@@ -137,16 +150,11 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
   }
 
   private void processMethod(ExecutableElement method) {
-    if (!method.getModifiers().contains(Modifier.STATIC)) {
-      throw abortWithError("@AutoAnnotation method must be static", method);
-    }
-
     TypeElement annotationElement = getAnnotationReturnType(method);
 
-    Set<Class<?>> wrapperTypesUsedInCollections = wrapperTypesUsedInCollections(method);
-
+    ImmutableSet<Class<?>> wrapperTypesUsedInCollections = wrapperTypesUsedInCollections(method);
     ImmutableMap<String, ExecutableElement> memberMethods = getMemberMethods(annotationElement);
-    TypeElement methodClass = (TypeElement) method.getEnclosingElement();
+    TypeElement methodClass = MoreElements.asType(method.getEnclosingElement());
     String pkg = TypeSimplifier.packageNameOf(methodClass);
 
     ImmutableMap<String, AnnotationValue> defaultValues = getDefaultValues(annotationElement);
@@ -163,9 +171,11 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     vars.generated = getGeneratedTypeName();
     vars.members = members;
     vars.params = parameters;
+    vars.equalsParameterType = equalsParameterType();
     vars.pkg = pkg;
     vars.wrapperTypesUsedInCollections = wrapperTypesUsedInCollections;
     vars.gwtCompatible = isGwtCompatible(annotationElement);
+    vars.serialVersionUID = computeSerialVersionUid(members, parameters);
     ImmutableMap<String, Integer> invariableHashes = invariableHashes(members, parameters.keySet());
     vars.invariableHashSum = 0;
     for (int h : invariableHashes.values()) {
@@ -182,14 +192,22 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
   private String getGeneratedTypeName() {
     return generatedAnnotation(elementUtils, processingEnv.getSourceVersion())
         .map(generatedAnnotation -> TypeEncoder.encode(generatedAnnotation.asType()))
-        .orElse(null);
+        .orElse("");
+  }
+
+  private String equalsParameterType() {
+    // Unlike AutoValue, we don't currently try to guess a @Nullable based on the methods in your
+    // class. It's the default one or nothing.
+    ImmutableList<AnnotationMirror> equalsParameterAnnotations =
+        Nullables.fromMethods(processingEnv, ImmutableList.of()).nullableTypeAnnotations();
+    return TypeEncoder.encodeWithAnnotations(javaLangObject, equalsParameterAnnotations);
   }
 
   /**
    * Returns the hashCode of the given AnnotationValue, if that hashCode is guaranteed to be always
-   * the same. The hashCode of a String or primitive type never changes. The hashCode of a Class
-   * or an enum constant does potentially change in different runs of the same program. The hashCode
-   * of an array doesn't change if the hashCodes of its elements don't. Although we could have a
+   * the same. The hashCode of a String or primitive type never changes. The hashCode of a Class or
+   * an enum constant does potentially change in different runs of the same program. The hashCode of
+   * an array doesn't change if the hashCodes of its elements don't. Although we could have a
    * similar rule for nested annotation values, we currently don't.
    */
   private static Optional<Integer> invariableHash(AnnotationValue annotationValue) {
@@ -197,7 +215,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     if (value instanceof String || Primitives.isWrapperType(value.getClass())) {
       return Optional.of(value.hashCode());
     } else if (value instanceof List<?>) {
-      @SuppressWarnings("unchecked")  // by specification
+      @SuppressWarnings("unchecked") // by specification
       List<? extends AnnotationValue> list = (List<? extends AnnotationValue>) value;
       return invariableHash(list);
     } else {
@@ -240,11 +258,12 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
 
   private boolean methodsAreOverloaded(List<ExecutableElement> methods) {
     boolean overloaded = false;
-    Set<String> classNames = new HashSet<String>();
+    Set<String> classNames = new HashSet<>();
     for (ExecutableElement method : methods) {
-      String qualifiedClassName = fullyQualifiedName(
-          MoreElements.getPackage(method).getQualifiedName().toString(),
-          generatedClassName(method));
+      String qualifiedClassName =
+          fullyQualifiedName(
+              MoreElements.getPackage(method).getQualifiedName().toString(),
+              generatedClassName(method));
       if (!classNames.add(qualifiedClassName)) {
         overloaded = true;
         reportError(method, "@AutoAnnotation methods cannot be overloaded");
@@ -254,10 +273,10 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
   }
 
   private String generatedClassName(ExecutableElement method) {
-    TypeElement type = (TypeElement) method.getEnclosingElement();
+    TypeElement type = MoreElements.asType(method.getEnclosingElement());
     String name = type.getSimpleName().toString();
-    while (type.getEnclosingElement() instanceof TypeElement) {
-      type = (TypeElement) type.getEnclosingElement();
+    while (MoreElements.isType(type.getEnclosingElement())) {
+      type = MoreElements.asType(type.getEnclosingElement());
       name = type.getSimpleName() + "_" + name;
     }
     return "AutoAnnotation_" + name + "_" + method.getSimpleName();
@@ -268,11 +287,13 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     if (returnTypeMirror.getKind() == TypeKind.DECLARED) {
       Element returnTypeElement = typeUtils.asElement(method.getReturnType());
       if (returnTypeElement.getKind() == ElementKind.ANNOTATION_TYPE) {
-        return (TypeElement) returnTypeElement;
+        return MoreElements.asType(returnTypeElement);
       }
     }
-    throw abortWithError("Return type of @AutoAnnotation method must be an annotation type, not "
-        + returnTypeMirror, method);
+    throw abortWithError(
+        method,
+        "Return type of @AutoAnnotation method must be an annotation type, not %s",
+        returnTypeMirror);
   }
 
   private ImmutableMap<String, ExecutableElement> getMemberMethods(TypeElement annotationElement) {
@@ -286,15 +307,12 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
   }
 
   private ImmutableMap<String, Member> getMembers(
-      Element context,
-      ImmutableMap<String, ExecutableElement> memberMethods) {
+      Element context, ImmutableMap<String, ExecutableElement> memberMethods) {
     ImmutableMap.Builder<String, Member> members = ImmutableMap.builder();
     for (Map.Entry<String, ExecutableElement> entry : memberMethods.entrySet()) {
       ExecutableElement memberMethod = entry.getValue();
       String name = memberMethod.getSimpleName().toString();
-      members.put(
-          name,
-          new Member(processingEnv, context, memberMethod));
+      members.put(name, new Member(processingEnv, context, memberMethod));
     }
     return members.build();
   }
@@ -313,18 +331,18 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
   }
 
   private ImmutableMap<String, Parameter> getParameters(
-      TypeElement annotationElement,
-      ExecutableElement method,
-      Map<String, Member> members) {
+      TypeElement annotationElement, ExecutableElement method, Map<String, Member> members) {
     ImmutableMap.Builder<String, Parameter> parameters = ImmutableMap.builder();
     boolean error = false;
     for (VariableElement parameter : method.getParameters()) {
       String name = parameter.getSimpleName().toString();
       Member member = members.get(name);
       if (member == null) {
-        reportError(parameter,
+        reportError(
+            parameter,
             "@AutoAnnotation method parameter '%s' must have the same name as a member of %s",
-            name, annotationElement);
+            name,
+            annotationElement);
         error = true;
       } else {
         TypeMirror parameterType = parameter.asType();
@@ -332,9 +350,14 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
         if (compatibleTypes(parameterType, memberType)) {
           parameters.put(name, new Parameter(parameterType));
         } else {
-          reportError(parameter,
+          reportError(
+              parameter,
               "@AutoAnnotation method parameter '%s' has type %s but %s.%s has type %s",
-              name, parameterType, annotationElement, name, memberType);
+              name,
+              parameterType,
+              annotationElement,
+              name,
+              memberType);
           error = true;
         }
       }
@@ -354,10 +377,14 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     boolean error = false;
     for (String memberName : members.keySet()) {
       if (!parameters.containsKey(memberName) && !defaultValues.containsKey(memberName)) {
-        reportError(method,
+        reportError(
+            method,
             "@AutoAnnotation method needs a parameter with name '%s' and type %s"
                 + " corresponding to %s.%s, which has no default value",
-            memberName, members.get(memberName).getType(), annotationElement, memberName);
+            memberName,
+            members.get(memberName).getType(),
+            annotationElement,
+            memberName);
         error = true;
       }
     }
@@ -384,10 +411,11 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     if (memberType.getKind() != TypeKind.ARRAY) {
       return false;
     }
-    TypeMirror arrayElementType = ((ArrayType) memberType).getComponentType();
-    TypeMirror wrappedArrayElementType = arrayElementType.getKind().isPrimitive()
-        ? typeUtils.boxedClass((PrimitiveType) arrayElementType).asType()
-        : arrayElementType;
+    TypeMirror arrayElementType = MoreTypes.asArray(memberType).getComponentType();
+    TypeMirror wrappedArrayElementType =
+        arrayElementType.getKind().isPrimitive()
+            ? typeUtils.boxedClass((PrimitiveType) arrayElementType).asType()
+            : arrayElementType;
     TypeElement javaUtilCollection =
         elementUtils.getTypeElement(Collection.class.getCanonicalName());
     DeclaredType collectionOfElement =
@@ -400,7 +428,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
    * like {@code List<Integer>}. This is needed because we will emit a helper method for each such
    * type, for example to convert {@code Collection<Integer>} into {@code int[]}.
    */
-  private Set<Class<?>> wrapperTypesUsedInCollections(ExecutableElement method) {
+  private ImmutableSet<Class<?>> wrapperTypesUsedInCollections(ExecutableElement method) {
     TypeElement javaUtilCollection = elementUtils.getTypeElement(Collection.class.getName());
     ImmutableSet.Builder<Class<?>> usedInCollections = ImmutableSet.builder();
     for (Class<?> wrapper : Primitives.allWrapperTypes()) {
@@ -430,6 +458,43 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     return pkg.isEmpty() ? cls : pkg + "." + cls;
   }
 
+  /**
+   * We compute a {@code serialVersionUID} for the generated class based on the names and types of
+   * the annotation members that the {@code @AutoAnnotation} method defines. These are exactly the
+   * names and types of the instance fields in the generated class. So in the common case where the
+   * annotation acquires a new member with a default value, if the {@code @AutoAnnotation} method is
+   * not changed then the generated class will acquire an implementation of the new member method
+   * which just returns the default value. The {@code serialVersionUID} will not change, which makes
+   * sense because the instance fields haven't changed, and instances that were serialized before
+   * the new member was added should deserialize fine. On the other hand, if you then add a
+   * parameter to the {@code @AutoAnnotation} method for the new member, the implementation class
+   * will acquire a new instance field, and we will compute a different {@code serialVersionUID}.
+   * That's because an instance serialized before that change would not have a value for the new
+   * instance field, which would end up zero or null. Users don't expect annotation methods to
+   * return null so that would be bad.
+   *
+   * <p>We could instead add a {@code readObject(ObjectInputStream)} method that would check that
+   * all of the instance fields are really present in the deserialized instance, and perhaps
+   * replace them with their default values from the annotation if not. That seems a lot more
+   * complicated than is justified, though, especially since the instance fields are final and
+   * would have to be set in the deserialized object through reflection.
+   */
+  private static long computeSerialVersionUid(
+      ImmutableMap<String, Member> members, ImmutableMap<String, Parameter> parameters) {
+    // TypeMirror.toString() isn't fully specified so it could potentially differ between
+    // implementations. Our member.getType() string comes from TypeEncoder and is predictable, but
+    // it includes `...` markers around fully-qualified type names, which are used to handle
+    // imports. So we remove those markers below.
+    String namesAndTypesString =
+        members.entrySet().stream()
+            .filter(e -> parameters.containsKey(e.getKey()))
+            .map(e -> immutableEntry(e.getKey(), e.getValue().getType().replace("`", "")))
+            .sorted(comparing(Map.Entry::getKey))
+            .map(e -> e.getKey() + ":" + e.getValue())
+            .collect(joining(";"));
+    return Hashing.murmur3_128().hashUnencodedChars(namesAndTypesString).asLong();
+  }
+
   private void writeSourceFile(String className, String text, TypeElement originatingType) {
     try {
       JavaFileObject sourceFile =
@@ -444,8 +509,10 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
       // right thing to do. If we are unable to write for some other reason, we should get a compile
       // error later because user code will have a reference to the code we were supposed to
       // generate (new AutoValue_Foo() or whatever) and that reference will be undefined.
-      processingEnv.getMessager().printMessage(Diagnostic.Kind.WARNING,
-          "Could not write generated class " + className + ": " + e);
+      processingEnv
+          .getMessager()
+          .printMessage(
+              Diagnostic.Kind.WARNING, "Could not write generated class " + className + ": " + e);
     }
   }
 
@@ -454,10 +521,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
     private final Element context;
     private final ExecutableElement method;
 
-    Member(
-        ProcessingEnvironment processingEnv,
-        Element context,
-        ExecutableElement method) {
+    Member(ProcessingEnvironment processingEnv, Element context, ExecutableElement method) {
       this.processingEnv = processingEnv;
       this.context = context;
       this.method = method;
@@ -474,7 +538,7 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
 
     public String getComponentType() {
       Preconditions.checkState(getTypeMirror().getKind() == TypeKind.ARRAY);
-      ArrayType arrayType = (ArrayType) getTypeMirror();
+      ArrayType arrayType = MoreTypes.asArray(getTypeMirror());
       return TypeEncoder.encode(arrayType.getComponentType());
     }
 
@@ -486,16 +550,22 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
       return getTypeMirror().getKind();
     }
 
+    // Used as part of the hashCode() computation.
+    // See https://docs.oracle.com/javase/8/docs/api/java/lang/annotation/Annotation.html#hashCode--
+    public int getNameHash() {
+      return 127 * toString().hashCode();
+    }
+
     public boolean isArrayOfClassWithBounds() {
       if (getTypeMirror().getKind() != TypeKind.ARRAY) {
         return false;
       }
-      TypeMirror componentType = ((ArrayType) getTypeMirror()).getComponentType();
+      TypeMirror componentType = MoreTypes.asArray(getTypeMirror()).getComponentType();
       if (componentType.getKind() != TypeKind.DECLARED) {
         return false;
       }
-      DeclaredType declared = (DeclaredType) componentType;
-      if (!((TypeElement) processingEnv.getTypeUtils().asElement(componentType))
+      DeclaredType declared = MoreTypes.asDeclared(componentType);
+      if (!MoreElements.asType(processingEnv.getTypeUtils().asElement(componentType))
           .getQualifiedName()
           .contentEquals("java.lang.Class")) {
         return false;
@@ -505,9 +575,9 @@ public class AutoAnnotationProcessor extends AbstractProcessor {
       }
       TypeMirror parameter = declared.getTypeArguments().get(0);
       if (parameter.getKind() != TypeKind.WILDCARD) {
-        return true;  // for Class<Foo>
+        return true; // for Class<Foo>
       }
-      WildcardType wildcard = (WildcardType) parameter;
+      WildcardType wildcard = MoreTypes.asWildcard(parameter);
       // In theory, we should check if getExtendsBound() != Object, since '?' is equivalent to
       // '? extends Object', but, experimentally, neither javac or ecj will sets getExtendsBound()
       // to 'Object', so there isn't a point in checking.

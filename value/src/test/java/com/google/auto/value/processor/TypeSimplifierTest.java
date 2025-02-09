@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Google Inc.
+ * Copyright 2012 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.google.auto.value.processor;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 
 import com.google.testing.compile.CompilationRule;
 import java.util.List;
@@ -62,8 +63,10 @@ public class TypeSimplifierTest {
     int[] intArrayNo;
     String stringNo;
     String[] stringArrayNo;
+
     @SuppressWarnings("rawtypes")
     List rawListNo;
+
     List<?> listOfQueryNo;
     List<? extends Object> listOfQueryExtendsObjectNo;
     Map<?, ?> mapQueryToQueryNo;
@@ -78,20 +81,21 @@ public class TypeSimplifierTest {
 
   private abstract static class Wildcards {
     abstract <T extends V, U extends T, V> Map<? extends T, ? super U> one();
+
     abstract <T extends V, U extends T, V> Map<? extends T, ? super U> two();
   }
 
   /**
-   * This test shows why we need to have TypeMirrorSet. The mirror of java.lang.Object obtained
-   * from {@link Elements#getTypeElement Elements.getTypeElement("java.lang.Object")} does not
-   * compare equal to the mirror of the return type of Object.clone(), even though that is also
+   * This test shows why we need to have TypeMirrorSet. The mirror of java.lang.Object obtained from
+   * {@link Elements#getTypeElement Elements.getTypeElement("java.lang.Object")} does not compare
+   * equal to the mirror of the return type of Object.clone(), even though that is also
    * java.lang.Object and {@link Types#isSameType} considers them the same.
    *
    * <p>There's no requirement that this test must pass and if it starts failing or doesn't work in
-   * another test environment then we can delete it. The specification of
-   * {@link TypeMirror#equals} explicitly says that it cannot be used for type equality, so even
-   * if this particular case stops being a problem (which means this test would fail), we would
-   * need TypeMirrorSet for complete correctness.
+   * another test environment then we can delete it. The specification of {@link TypeMirror#equals}
+   * explicitly says that it cannot be used for type equality, so even if this particular case stops
+   * being a problem (which means this test would fail), we would need TypeMirrorSet for complete
+   * correctness.
    */
   @Test
   public void testQuirkyTypeMirrors() {
@@ -102,6 +106,7 @@ public class TypeSimplifierTest {
   }
 
   @Test
+  @SuppressWarnings("TypeEquals") // We want to test the equals method invocation on TypeMirror.
   public void testTypeMirrorSet() {
     // Test the TypeMirrorSet methods. Resist the temptation to rewrite these in terms of
     // Truth operations! For example, don't change assertThat(set.size()).isEqualTo(0) into
@@ -181,7 +186,7 @@ public class TypeSimplifierTest {
     // Reminder: captureOne is Map<?#123 extends T, ?#456 super U>
     TypeVariable extendsT = (TypeVariable) captureOne.getTypeArguments().get(0);
     assertThat(typeMirrorSet.add(extendsT)).isTrue();
-    assertThat(typeMirrorSet.add(extendsT.getLowerBound())).isTrue();  // NoType
+    assertThat(typeMirrorSet.add(extendsT.getLowerBound())).isTrue(); // NoType
     for (TypeMirror bound : ((TypeParameterElement) extendsT.asElement()).getBounds()) {
       assertThat(typeMirrorSet.add(bound)).isTrue();
     }
@@ -223,8 +228,8 @@ public class TypeSimplifierTest {
       }
       TypeMirror fieldType = field.asType();
       boolean actualUnchecked = TypeSimplifier.isCastingUnchecked(fieldType);
-      assertThat(actualUnchecked)
-          .named("Unchecked-cast status for " + fieldType)
+      assertWithMessage("Unchecked-cast status for " + fieldType)
+          .that(actualUnchecked)
           .isEqualTo(expectUnchecked);
     }
   }

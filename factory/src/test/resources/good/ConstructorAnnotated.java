@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,17 @@ import com.google.auto.factory.AutoFactory;
 import com.google.auto.factory.Provided;
 
 final class ConstructorAnnotated {
-  @AutoFactory ConstructorAnnotated() {}
+  @AutoFactory
+  ConstructorAnnotated() {}
+
   ConstructorAnnotated(Object obj) {}
-  @AutoFactory ConstructorAnnotated(String s) {}
-  @AutoFactory ConstructorAnnotated(@Provided Object obj, int i) {}
-  @AutoFactory ConstructorAnnotated(@Provided Object obj, char c) {}
+
+  @AutoFactory
+  ConstructorAnnotated(String s) {}
+
+  @AutoFactory
+  ConstructorAnnotated(@Provided Object obj, int i) {}
+
+  @AutoFactory
+  ConstructorAnnotated(@Provided Object obj, char c) {}
 }

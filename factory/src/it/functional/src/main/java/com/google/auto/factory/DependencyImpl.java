@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,5 +18,6 @@ package com.google.auto.factory;
 import javax.inject.Inject;
 
 public class DependencyImpl implements Dependency {
-  @Inject DependencyImpl() {}
+  @Inject
+  DependencyImpl() {}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Google, Inc.
+ * Copyright 2015 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package tests;
 
 import com.google.auto.factory.AutoFactory;
 
-class MultipleFactoriesImplementingInterface {  
+class MultipleFactoriesImplementingInterface {
   static interface Base {
     static interface Factory {
       public abstract Base abstractNonDefaultCreate();
@@ -25,8 +25,8 @@ class MultipleFactoriesImplementingInterface {
   }
 
   @AutoFactory(implementing = Base.Factory.class)
-  static class ClassA implements Base { }
+  static class ClassA implements Base {}
 
   @AutoFactory(implementing = Base.Factory.class)
   static class ClassB implements Base {}
-}  
+}

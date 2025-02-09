@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,15 +19,19 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.fail;
 
 import com.google.common.testing.EqualsTester;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.concurrent.ExecutionException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-/**
- * @author emcmanus@google.com (Éamonn McManus)
- */
+/** @author emcmanus@google.com (Éamonn McManus) */
 @RunWith(JUnit4.class)
 public class AutoOneOfTest {
   @AutoValue
@@ -61,22 +65,29 @@ public class AutoOneOfTest {
 
   @AutoOneOf(Pet.Kind.class)
   public abstract static class Pet {
-    public enum Kind {DOG, CAT, TIGER_SHARK}
 
-    public abstract Dog dog();
-    public abstract Cat cat();
-    public abstract TigerShark tigerShark();
-
-    public static Pet dog(Dog dog) {
+    public static Pet create(Dog dog) {
       return AutoOneOf_AutoOneOfTest_Pet.dog(dog);
     }
 
-    public static Pet cat(Cat cat) {
+    public static Pet create(Cat cat) {
       return AutoOneOf_AutoOneOfTest_Pet.cat(cat);
     }
 
-    public static Pet tigerShark(TigerShark shark) {
+    public static Pet create(TigerShark shark) {
       return AutoOneOf_AutoOneOfTest_Pet.tigerShark(shark);
+    }
+
+    public abstract Dog dog();
+
+    public abstract Cat cat();
+
+    public abstract TigerShark tigerShark();
+
+    public enum Kind {
+      DOG,
+      CAT,
+      TIGER_SHARK
     }
 
     public abstract Kind getKind();
@@ -85,11 +96,11 @@ public class AutoOneOfTest {
   @Test
   public void equality() {
     Dog marvin1 = Dog.create("Marvin");
-    Pet petMarvin1 = Pet.dog(marvin1);
+    Pet petMarvin1 = Pet.create(marvin1);
     Dog marvin2 = Dog.create("Marvin");
-    Pet petMarvin2 = Pet.dog(marvin2);
+    Pet petMarvin2 = Pet.create(marvin2);
     Dog isis = Dog.create("Isis");
-    Pet petIsis = Pet.dog(isis);
+    Pet petIsis = Pet.create(isis);
     Cat cat = Cat.create();
     new EqualsTester()
         .addEqualityGroup(marvin1, marvin2)
@@ -103,14 +114,14 @@ public class AutoOneOfTest {
   @Test
   public void getCorrectType() {
     Dog marvin = Dog.create("Marvin");
-    Pet petMarvin = Pet.dog(marvin);
-    assertThat(petMarvin.dog()).isSameAs(marvin);
+    Pet petMarvin = Pet.create(marvin);
+    assertThat(petMarvin.dog()).isSameInstanceAs(marvin);
   }
 
   @Test
   public void getWrongType() {
     Cat cat = Cat.create();
-    Pet petCat = Pet.cat(cat);
+    Pet petCat = Pet.create(cat);
     try {
       petCat.tigerShark();
       fail();
@@ -122,18 +133,18 @@ public class AutoOneOfTest {
   @Test
   public void string() {
     Dog marvin = Dog.create("Marvin");
-    Pet petMarvin = Pet.dog(marvin);
+    Pet petMarvin = Pet.create(marvin);
     assertThat(petMarvin.toString()).isEqualTo("Pet{dog=Dog{name=Marvin}}");
   }
 
   @Test
   public void getKind() {
     Dog marvin = Dog.create("Marvin");
-    Pet petMarvin = Pet.dog(marvin);
+    Pet petMarvin = Pet.create(marvin);
     Cat cat = Cat.create();
-    Pet petCat = Pet.cat(cat);
+    Pet petCat = Pet.create(cat);
     TigerShark shark = TigerShark.create();
-    Pet petShark = Pet.tigerShark(shark);
+    Pet petShark = Pet.create(shark);
     assertThat(petMarvin.getKind()).isEqualTo(Pet.Kind.DOG);
     assertThat(petCat.getKind()).isEqualTo(Pet.Kind.CAT);
     assertThat(petShark.getKind()).isEqualTo(Pet.Kind.TIGER_SHARK);
@@ -142,7 +153,7 @@ public class AutoOneOfTest {
   @Test
   public void cannotBeNull() {
     try {
-      Pet.dog(null);
+      Pet.create((Dog) null);
       fail();
     } catch (NullPointerException expected) {
     }
@@ -152,9 +163,15 @@ public class AutoOneOfTest {
 
   @AutoOneOf(IntegerOrString.Kind.class)
   abstract static class IntegerOrString {
-    enum Kind {INTEGER, STRING}
+    enum Kind {
+      INTEGER,
+      STRING
+    }
+
     abstract Kind getKind();
+
     abstract int integer();
+
     abstract String string();
 
     static IntegerOrString of(int x) {
@@ -186,18 +203,20 @@ public class AutoOneOfTest {
   @AutoOneOf(Pet.Kind.class)
   public abstract static class PetWithGet {
     public abstract Dog getDog();
+
     public abstract Cat getCat();
+
     public abstract TigerShark getTigerShark();
 
-    public static PetWithGet dog(Dog dog) {
+    public static PetWithGet create(Dog dog) {
       return AutoOneOf_AutoOneOfTest_PetWithGet.dog(dog);
     }
 
-    public static PetWithGet cat(Cat cat) {
+    public static PetWithGet create(Cat cat) {
       return AutoOneOf_AutoOneOfTest_PetWithGet.cat(cat);
     }
 
-    public static PetWithGet tigerShark(TigerShark shark) {
+    public static PetWithGet create(TigerShark shark) {
       return AutoOneOf_AutoOneOfTest_PetWithGet.tigerShark(shark);
     }
 
@@ -207,22 +226,39 @@ public class AutoOneOfTest {
   @Test
   public void getPrefix() {
     Dog marvin = Dog.create("Marvin");
-    PetWithGet petMarvin = PetWithGet.dog(marvin);
+    PetWithGet petMarvin = PetWithGet.create(marvin);
     assertThat(petMarvin.toString()).isEqualTo("PetWithGet{dog=Dog{name=Marvin}}");
   }
 
   @AutoOneOf(Primitive.Kind.class)
   public abstract static class Primitive {
-    public enum Kind {A_BYTE, A_SHORT, AN_INT, A_LONG, A_FLOAT, A_DOUBLE, A_CHAR, A_BOOLEAN}
+    public enum Kind {
+      A_BYTE,
+      A_SHORT,
+      AN_INT,
+      A_LONG,
+      A_FLOAT,
+      A_DOUBLE,
+      A_CHAR,
+      A_BOOLEAN
+    }
+
     public abstract Kind getKind();
 
     public abstract byte aByte();
+
     public abstract short aShort();
+
     public abstract int anInt();
+
     public abstract long aLong();
+
     public abstract float aFloat();
+
     public abstract double aDouble();
+
     public abstract char aChar();
+
     public abstract boolean aBoolean();
 
     public static Primitive of(byte x) {
@@ -267,11 +303,13 @@ public class AutoOneOfTest {
 
   @AutoOneOf(OneOfOne.Kind.class)
   public abstract static class OneOfOne {
-    public enum Kind {DOG}
+    public enum Kind {
+      DOG
+    }
 
     public abstract Dog getDog();
 
-    public static OneOfOne dog(Dog dog) {
+    public static OneOfOne create(Dog dog) {
       return AutoOneOf_AutoOneOfTest_OneOfOne.dog(dog);
     }
 
@@ -281,7 +319,7 @@ public class AutoOneOfTest {
   @Test
   public void oneOfOne() {
     Dog marvin = Dog.create("Marvin");
-    OneOfOne oneOfMarvin = OneOfOne.dog(marvin);
+    OneOfOne oneOfMarvin = OneOfOne.create(marvin);
     assertThat(oneOfMarvin.toString()).isEqualTo("OneOfOne{dog=Dog{name=Marvin}}");
     assertThat(oneOfMarvin.getKind()).isEqualTo(OneOfOne.Kind.DOG);
   }
@@ -301,7 +339,10 @@ public class AutoOneOfTest {
   // might not use all the type parameters.
   @AutoOneOf(TaskResult.Kind.class)
   public abstract static class TaskResult<V extends Serializable> {
-    public enum Kind {VALUE, EXCEPTION}
+    public enum Kind {
+      VALUE,
+      EXCEPTION
+    }
 
     public abstract Kind getKind();
 
@@ -348,8 +389,12 @@ public class AutoOneOfTest {
 
   @AutoOneOf(CustomToString.Kind.class)
   public abstract static class CustomToString {
-    public enum Kind {ACE}
+    public enum Kind {
+      ACE
+    }
+
     public abstract Kind getKind();
+
     public abstract String ace();
 
     public static CustomToString ace(String ace) {
@@ -371,8 +416,12 @@ public class AutoOneOfTest {
 
   @AutoOneOf(AbstractToString.Kind.class)
   public abstract static class AbstractToString {
-    public enum Kind {ACE}
+    public enum Kind {
+      ACE
+    }
+
     public abstract Kind getKind();
+
     public abstract String ace();
 
     public static AbstractToString ace(String ace) {
@@ -396,9 +445,15 @@ public class AutoOneOfTest {
   // that are reserved words.
   @AutoOneOf(LetterOrPackage.Kind.class)
   public abstract static class LetterOrPackage {
-    public enum Kind {LETTER, PACKAGE}
+    public enum Kind {
+      LETTER,
+      PACKAGE
+    }
+
     public abstract Kind getKind();
+
     public abstract String getLetter();
+
     public abstract String getPackage();
 
     public static LetterOrPackage ofLetter(String letter) {
@@ -414,5 +469,217 @@ public class AutoOneOfTest {
   public void reservedWordProperty() {
     LetterOrPackage pkg = LetterOrPackage.ofPackage("pacquet");
     assertThat(pkg.toString()).isEqualTo("LetterOrPackage{package=pacquet}");
+  }
+
+  @AutoOneOf(ArrayValue.Kind.class)
+  public abstract static class ArrayValue {
+    public enum Kind {
+      STRING,
+      INTS
+    }
+
+    public abstract Kind getKind();
+
+    public abstract String string();
+
+    @SuppressWarnings("mutable")
+    public abstract int[] ints();
+
+    public static ArrayValue ofString(String string) {
+      return AutoOneOf_AutoOneOfTest_ArrayValue.string(string);
+    }
+
+    public static ArrayValue ofInts(int[] ints) {
+      return AutoOneOf_AutoOneOfTest_ArrayValue.ints(ints);
+    }
+  }
+
+  @Test
+  public void arrayValues() {
+    ArrayValue string = ArrayValue.ofString("foo");
+    ArrayValue ints1 = ArrayValue.ofInts(new int[] {17, 23});
+    ArrayValue ints2 = ArrayValue.ofInts(new int[] {17, 23});
+    new EqualsTester().addEqualityGroup(string).addEqualityGroup(ints1, ints2).testEquals();
+  }
+
+  @Retention(RetentionPolicy.RUNTIME)
+  public @interface CopyTest {
+    int value();
+  }
+
+  @AutoOneOf(AnnotationNotCopied.Kind.class)
+  @CopyTest(23)
+  public abstract static class AnnotationNotCopied {
+    public enum Kind {
+      ACE
+    }
+
+    public abstract Kind getKind();
+
+    public abstract String ace();
+
+    public static AnnotationNotCopied ace(String ace) {
+      return AutoOneOf_AutoOneOfTest_AnnotationNotCopied.ace(ace);
+    }
+  }
+
+  @Test
+  public void classAnnotationsNotCopiedByDefault() {
+    assertThat(AnnotationNotCopied.class.isAnnotationPresent(CopyTest.class)).isTrue();
+    AnnotationNotCopied ace = AnnotationNotCopied.ace("ace");
+    assertThat(ace.getClass().isAnnotationPresent(CopyTest.class)).isFalse();
+  }
+
+  @AutoOneOf(AnnotationCopied.Kind.class)
+  @CopyTest(23)
+  @AutoValue.CopyAnnotations
+  public abstract static class AnnotationCopied {
+    public enum Kind {
+      ACE
+    }
+
+    public abstract Kind getKind();
+
+    public abstract String ace();
+
+    public static AnnotationCopied ace(String ace) {
+      return AutoOneOf_AutoOneOfTest_AnnotationCopied.ace(ace);
+    }
+  }
+
+  @Test
+  public void classAnnotationsCopiedIfCopyAnnotations() {
+    assertThat(AnnotationCopied.class.isAnnotationPresent(CopyTest.class)).isTrue();
+    AnnotationCopied ace = AnnotationCopied.ace("ace");
+    assertThat(ace.getClass().isAnnotationPresent(CopyTest.class)).isTrue();
+    assertThat(ace.getClass().getAnnotation(CopyTest.class).value()).isEqualTo(23);
+  }
+
+  @AutoOneOf(MaybeEmpty.Kind.class)
+  public abstract static class MaybeEmpty implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    public enum Kind {
+      EMPTY,
+      STRING,
+    }
+
+    public abstract Kind getKind();
+
+    public abstract void empty();
+
+    public abstract String string();
+
+    public static MaybeEmpty ofEmpty() {
+      return AutoOneOf_AutoOneOfTest_MaybeEmpty.empty();
+    }
+
+    public static MaybeEmpty ofString(String s) {
+      return AutoOneOf_AutoOneOfTest_MaybeEmpty.string(s);
+    }
+  }
+
+  @Test
+  public void voidPropertyIsSingleton() {
+    MaybeEmpty empty1 = MaybeEmpty.ofEmpty();
+    MaybeEmpty empty2 = MaybeEmpty.ofEmpty();
+    assertThat(empty1).isSameInstanceAs(empty2);
+  }
+
+  @Test
+  public void voidPropertyRemainsSingletonWhenDeserialized() throws Exception {
+    MaybeEmpty empty1 = MaybeEmpty.ofEmpty();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    // We're still compiling this with -source 6, so we can't use try-with-resources.
+    ObjectOutputStream dos = new ObjectOutputStream(baos);
+    dos.writeObject(empty1);
+    dos.close();
+    ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+    ObjectInputStream ois = new ObjectInputStream(bais);
+    MaybeEmpty empty2 = (MaybeEmpty) ois.readObject();
+    assertThat(empty2).isSameInstanceAs(empty1);
+  }
+
+  @Test
+  public void voidPropertyToString() {
+    MaybeEmpty empty = MaybeEmpty.ofEmpty();
+    assertThat(empty.toString()).isEqualTo("MaybeEmpty{empty}");
+  }
+
+  @Test
+  public void voidPropertyHashCodeIsIdentity() {
+    MaybeEmpty empty = MaybeEmpty.ofEmpty();
+    assertThat(empty.hashCode()).isEqualTo(System.identityHashCode(empty));
+  }
+
+  @Test
+  public void voidPropertyGetterDoesNothing() {
+    MaybeEmpty empty = MaybeEmpty.ofEmpty();
+    empty.empty();
+  }
+
+  @Test
+  public void voidPropertyNotEqualToNonVoid() {
+    MaybeEmpty empty = MaybeEmpty.ofEmpty();
+    MaybeEmpty notEmpty = MaybeEmpty.ofString("foo");
+    assertThat(empty).isNotEqualTo(notEmpty);
+    assertThat(notEmpty).isNotEqualTo(empty);
+  }
+
+  @Test
+  public void voidPropertyWrongType() {
+    MaybeEmpty notEmpty = MaybeEmpty.ofString("foo");
+    try {
+      notEmpty.empty();
+      fail();
+    } catch (UnsupportedOperationException e) {
+      assertThat(e).hasMessageThat().containsMatch("(?i:string)");
+    }
+  }
+
+  @AutoOneOf(OneOfArray.Kind.class)
+  public abstract static class OneOfArray {
+    public enum Kind {
+      INTS
+    }
+
+    public abstract Kind getKind();
+
+    @SuppressWarnings("mutable")
+    public abstract int[] ints();
+
+    public static OneOfArray ofInts(int[] s) {
+      return AutoOneOf_AutoOneOfTest_OneOfArray.ints(s);
+    }
+  }
+
+  @Test
+  public void arrayToString() {
+    OneOfArray oneOfArray = OneOfArray.ofInts(new int[] {1, 2});
+    assertThat(oneOfArray.toString()).isEqualTo("OneOfArray{ints=[1, 2]}");
+  }
+
+  @AutoOneOf(OneOfFunkyString.Kind.class)
+  public abstract static class OneOfFunkyString {
+    public enum Kind {
+      FUNKY_STRING
+    }
+
+    public static class String {}
+
+    public abstract Kind getKind();
+
+    public abstract String funkyString();
+
+    public static OneOfFunkyString ofFunkyString(String s) {
+      return AutoOneOf_AutoOneOfTest_OneOfFunkyString.funkyString(s);
+    }
+  }
+
+  @Test
+  public void funkyString() {
+    OneOfFunkyString oneOfFunkyString =
+        OneOfFunkyString.ofFunkyString(new OneOfFunkyString.String());
+    assertThat(oneOfFunkyString.funkyString()).isNotNull();
   }
 }

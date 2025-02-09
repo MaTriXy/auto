@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,30 +20,35 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-  )
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class FactoryImplementingGenericInterfaceExtensionFactory
     implements FactoryImplementingGenericInterfaceExtension.MyFactory {
   private final Provider<String> sProvider;
+
   @Inject
   FactoryImplementingGenericInterfaceExtensionFactory(Provider<String> sProvider) {
-    this.sProvider = checkNotNull(sProvider, 1);
+    this.sProvider = checkNotNull(sProvider, 1, 1);
   }
+
   FactoryImplementingGenericInterfaceExtension create(Integer i) {
     return new FactoryImplementingGenericInterfaceExtension(
-        checkNotNull(sProvider.get(), 1), checkNotNull(i, 2));
+        checkNotNull(sProvider.get(), 1, 2), checkNotNull(i, 2, 2));
   }
+
   @Override
   public FactoryImplementingGenericInterfaceExtension make(Integer arg) {
     return create(arg);
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

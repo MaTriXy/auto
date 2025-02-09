@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,13 +21,14 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Specifies that the annotated class is a <em>one-of</em> class, also known as a
- * <a href="https://en.wikipedia.org/wiki/Tagged_union"><em>tagged union</em></a>.
- * An {@code @AutoOneOf} class is very similar to an {@link AutoValue @AutoValue} class, in that its
+ * Specifies that the annotated class is a <em>one-of</em> class, also known as a <a
+ * href="https://en.wikipedia.org/wiki/Tagged_union"><em>tagged union</em></a>. An
+ * {@code @AutoOneOf} class is very similar to an {@link AutoValue @AutoValue} class, in that its
  * abstract methods define a set of properties. But unlike {@code @AutoValue}, only one of those
  * properties is defined in any given instance.
  *
- * <pre>{@code @AutoOneOf(StringOrInteger.Kind.class)
+ * <pre>{@code
+ * @AutoOneOf(StringOrInteger.Kind.class)
  * public abstract class StringOrInteger {
  *   public enum Kind {STRING, INTEGER}
  *
@@ -36,11 +37,11 @@ import java.lang.annotation.Target;
  *   public abstract String string();
  *   public abstract int integer();
  *
- *   public static StringOrInteger string(String s) {
+ *   public static StringOrInteger ofString(String s) {
  *     return AutoOneOf_StringOrInteger.string(s);
  *   }
  *
- *   public static StringOrInteger integer(int i) {
+ *   public static StringOrInteger ofInteger(int i) {
  *     return AutoOneOf_StringOrInteger.integer(i);
  *   }
  * }
@@ -53,9 +54,11 @@ import java.lang.annotation.Target;
  *       return "the integer " + stringOrInteger.integer();
  *   }
  *   throw new AssertionError();
- * }}</pre>
+ * }
+ * }</pre>
  *
- * <!-- TODO(emcmanus): replace this example with a link to yet-to-be-written documentation. -->
+ * <p>{@code @AutoOneOf} is explained in more detail in the <a
+ * href="https://github.com/google/auto/blob/main/value/userguide/howto.md#oneof">user guide</a>.
  *
  * @author Chris Nokleberg
  * @author Éamonn McManus
@@ -63,8 +66,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.CLASS)
 @Target(ElementType.TYPE)
 public @interface AutoOneOf {
-  /**
-   * Specifies an enum that has one entry per variant in the one-of.
-   */
+  /** Specifies an enum that has one entry per variant in the one-of. */
   Class<? extends Enum<?>> value();
 }

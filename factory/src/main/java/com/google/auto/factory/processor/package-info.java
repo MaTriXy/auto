@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License. You may obtain a copy of the License at
@@ -15,4 +15,7 @@
  * This package contains the annotation processor that implements the
  * {@link com.google.auto.factory.AutoFactory} API.
  */
+@NullMarked
 package com.google.auto.factory.processor;
+
+import org.jspecify.annotations.NullMarked;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +27,8 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /**
- * Tests that the generated serializer class for a GWT-serializable class contains a dummy field
- * to influence the signature, and that different classes have different signatures.
+ * Tests that the generated serializer class for a GWT-serializable class contains a dummy field to
+ * influence the signature, and that different classes have different signatures.
  *
  * @author emcmanus@google.com (Éamonn McManus)
  */

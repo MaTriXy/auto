@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Google, Inc.
+ * Copyright 2018 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.google.auto.value.processor;
 
-import static com.google.auto.common.GeneratedAnnotations.generatedAnnotation;
 import static com.google.auto.common.MoreElements.getLocalAndInheritedMethods;
 import static com.google.auto.value.processor.ClassNames.AUTO_ONE_OF_NAME;
 import static java.util.stream.Collectors.toMap;
@@ -25,12 +24,12 @@ import com.google.auto.common.AnnotationMirrors;
 import com.google.auto.common.MoreElements;
 import com.google.auto.common.MoreTypes;
 import com.google.auto.service.AutoService;
+import com.google.auto.value.processor.MissingTypes.MissingTypeException;
 import com.google.common.collect.ImmutableBiMap;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -38,7 +37,6 @@ import java.util.Optional;
 import java.util.Set;
 import javax.annotation.processing.Processor;
 import javax.annotation.processing.SupportedAnnotationTypes;
-import javax.annotation.processing.SupportedOptions;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
@@ -46,33 +44,37 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
-import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessor;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessorType;
 
 /**
- * Javac annotation processor (compiler plugin) for one-of types; user code never references this
- * class.
- *
- * @see AutoOneOf
- * @see <a href="https://github.com/google/auto/tree/master/value">AutoValue User's Guide</a>
+ * Javac annotation processor (compiler plugin) for {@linkplain com.google.auto.value.AutoOneOf
+ * one-of} types; user code never references this class.
  *
  * @author Éamonn McManus
+ * @see <a href="https://github.com/google/auto/tree/main/value">AutoValue User's Guide</a>
  */
 @AutoService(Processor.class)
 @SupportedAnnotationTypes(AUTO_ONE_OF_NAME)
-@SupportedOptions("com.google.auto.value.OmitIdentifiers")
-public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
+@IncrementalAnnotationProcessor(IncrementalAnnotationProcessorType.ISOLATING)
+public class AutoOneOfProcessor extends AutoValueishProcessor {
   public AutoOneOfProcessor() {
-    super(AUTO_ONE_OF_NAME);
+    super(AUTO_ONE_OF_NAME, /* appliesToInterfaces= */ false);
+  }
+
+  @Override
+  boolean propertiesCanBeVoid() {
+    return true;
+  }
+
+  @Override
+  public ImmutableSet<String> getSupportedOptions() {
+    return ImmutableSet.of(Nullables.NULLABLE_OPTION);
   }
 
   @Override
   void processType(TypeElement autoOneOfType) {
-    if (autoOneOfType.getKind() != ElementKind.CLASS) {
-      errorReporter().abortWithError(
-          "@" + AUTO_ONE_OF_NAME + " only applies to classes", autoOneOfType);
-    }
-    checkModifiersIfNested(autoOneOfType);
     DeclaredType kindMirror = mirrorForKindType(autoOneOfType);
 
     // We are going to classify the methods of the @AutoOneOf class into several categories.
@@ -88,35 +90,30 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
     // If there are abstract methods that don't fit any of the categories above, that is an error
     // which we signal explicitly to avoid confusion.
 
-    ImmutableSet<ExecutableElement> methods = getLocalAndInheritedMethods(
-        autoOneOfType, processingEnv.getTypeUtils(), processingEnv.getElementUtils());
+    ImmutableSet<ExecutableElement> methods =
+        getLocalAndInheritedMethods(
+            autoOneOfType, processingEnv.getTypeUtils(), processingEnv.getElementUtils());
     ImmutableSet<ExecutableElement> abstractMethods = abstractMethodsIn(methods);
     ExecutableElement kindGetter =
         findKindGetterOrAbort(autoOneOfType, kindMirror, abstractMethods);
     Set<ExecutableElement> otherMethods = new LinkedHashSet<>(abstractMethods);
     otherMethods.remove(kindGetter);
 
-    ImmutableSet<ExecutableElement> propertyMethods = propertyMethodsIn(otherMethods);
-    ImmutableBiMap<String, ExecutableElement> properties = propertyNameToMethodMap(propertyMethods);
-    validateMethods(autoOneOfType, abstractMethods, propertyMethods, kindGetter);
+    ImmutableMap<ExecutableElement, AnnotatedTypeMirror> propertyMethodsAndTypes =
+        propertyMethodsIn(otherMethods, autoOneOfType);
+    ImmutableBiMap<String, ExecutableElement> properties =
+        propertyNameToMethodMap(propertyMethodsAndTypes.keySet());
+    validateMethods(autoOneOfType, abstractMethods, propertyMethodsAndTypes.keySet(), kindGetter);
     ImmutableMap<String, String> propertyToKind =
         propertyToKindMap(kindMirror, properties.keySet());
 
     String subclass = generatedClassName(autoOneOfType, "AutoOneOf_");
     AutoOneOfTemplateVars vars = new AutoOneOfTemplateVars();
-    vars.pkg = TypeSimplifier.packageNameOf(autoOneOfType);
-    vars.origClass = TypeSimplifier.classNameOf(autoOneOfType);
-    vars.simpleClassName = TypeSimplifier.simpleNameOf(vars.origClass);
     vars.generatedClass = TypeSimplifier.simpleNameOf(subclass);
-    vars.types = processingEnv.getTypeUtils();
     vars.propertyToKind = propertyToKind;
-    Map<ObjectMethod, ExecutableElement> methodsToGenerate =
-        determineObjectMethodsToGenerate(methods);
-    vars.toString = methodsToGenerate.containsKey(ObjectMethod.TO_STRING);
-    vars.equals = methodsToGenerate.containsKey(ObjectMethod.EQUALS);
-    vars.hashCode = methodsToGenerate.containsKey(ObjectMethod.HASH_CODE);
-    vars.equalsParameterType = equalsParameterType(methodsToGenerate);
-    defineVarsForType(autoOneOfType, vars, propertyMethods, kindGetter);
+    Nullables nullables = Nullables.fromMethods(processingEnv, methods);
+    defineSharedVarsForType(autoOneOfType, methods, nullables, vars);
+    defineVarsForType(autoOneOfType, vars, propertyMethodsAndTypes, kindGetter, nullables);
 
     String text = vars.toText();
     text = TypeEncoder.decode(text, processingEnv, vars.pkg, autoOneOfType.asType());
@@ -125,23 +122,22 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
   }
 
   private DeclaredType mirrorForKindType(TypeElement autoOneOfType) {
-    Optional<AnnotationMirror> oneOfAnnotation =
-        getAnnotationMirror(autoOneOfType, AUTO_ONE_OF_NAME);
-    if (!oneOfAnnotation.isPresent()) {
-      // This shouldn't happen unless the compilation environment is buggy,
-      // but it has happened in the past and can crash the compiler.
-      errorReporter().abortWithError("annotation processor for @AutoOneOf was invoked with a type"
-          + " that does not have that annotation; this is probably a compiler bug", autoOneOfType);
-    }
-    AnnotationValue kindValue =
-        AnnotationMirrors.getAnnotationValue(oneOfAnnotation.get(), "value");
+    // The annotation is guaranteed to be present by the contract of Processor#process
+    AnnotationMirror oneOfAnnotation = getAnnotationMirror(autoOneOfType, AUTO_ONE_OF_NAME).get();
+    AnnotationValue kindValue = AnnotationMirrors.getAnnotationValue(oneOfAnnotation, "value");
     Object value = kindValue.getValue();
-    if (value instanceof TypeMirror && ((TypeMirror) value).getKind().equals(TypeKind.DECLARED)) {
-      return MoreTypes.asDeclared((TypeMirror) value);
-    } else {
-      // This is presumably because the referenced type doesn't exist.
-      throw new MissingTypeException();
+    if (value instanceof TypeMirror) {
+      TypeMirror kindType = (TypeMirror) value;
+      switch (kindType.getKind()) {
+        case DECLARED:
+          return MoreTypes.asDeclared(kindType);
+        case ERROR:
+          throw new MissingTypeException(MoreTypes.asError(kindType));
+        default:
+          break;
+      }
     }
+    throw new MissingTypeException(null);
   }
 
   private ImmutableMap<String, String> propertyToKindMap(
@@ -152,13 +148,12 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
     // transformName(constantName) → constant. The key sets of the two maps must match, and we
     // can then join them to make propertyName → constantName.
     TypeElement kindElement = MoreElements.asType(kindMirror.asElement());
-    Map<String, String> transformedPropertyNames = propertyNames
-        .stream()
-        .collect(toMap(this::transformName, s -> s));
-    Map<String, Element> transformedEnumConstants = kindElement.getEnclosedElements()
-        .stream()
-        .filter(e -> e.getKind().equals(ElementKind.ENUM_CONSTANT))
-        .collect(toMap(e -> transformName(e.getSimpleName().toString()), e -> e));
+    Map<String, String> transformedPropertyNames =
+        propertyNames.stream().collect(toMap(this::transformName, s -> s));
+    Map<String, Element> transformedEnumConstants =
+        kindElement.getEnclosedElements().stream()
+            .filter(e -> e.getKind().equals(ElementKind.ENUM_CONSTANT))
+            .collect(toMap(e -> transformName(e.getSimpleName().toString()), e -> e));
 
     if (transformedPropertyNames.keySet().equals(transformedEnumConstants.keySet())) {
       ImmutableMap.Builder<String, String> mapBuilder = ImmutableMap.builder();
@@ -175,19 +170,24 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
     transformedPropertyNames.forEach(
         (transformed, property) -> {
           if (!transformedEnumConstants.containsKey(transformed)) {
-            errorReporter().reportError(
-                "Enum has no constant with name corresponding to property '" + property + "'",
-                kindElement);
+            errorReporter()
+                .reportError(
+                    kindElement,
+                    "[AutoOneOfNoEnumConstant] Enum has no constant with name corresponding to"
+                        + " property '%s'",
+                    property);
           }
         });
     // Enum constants that have no property
     transformedEnumConstants.forEach(
         (transformed, constant) -> {
           if (!transformedPropertyNames.containsKey(transformed)) {
-            errorReporter().reportError(
-                "Name of enum constant '" + constant.getSimpleName()
-                    + "' does not correspond to any property name",
-                constant);
+            errorReporter()
+                .reportError(
+                    constant,
+                    "[AutoOneOfBadEnumConstant] Name of enum constant '%s' does not correspond to"
+                        + " any property name",
+                    constant.getSimpleName());
           }
         });
     throw new AbortProcessingException();
@@ -201,23 +201,29 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
       TypeElement autoOneOfType,
       TypeMirror kindMirror,
       ImmutableSet<ExecutableElement> abstractMethods) {
-    Set<ExecutableElement> kindGetters = abstractMethods
-        .stream()
-        .filter(e -> sameType(kindMirror, e.getReturnType()))
-        .filter(e -> e.getParameters().isEmpty())
-        .collect(toSet());
+    Set<ExecutableElement> kindGetters =
+        abstractMethods.stream()
+            .filter(e -> sameType(kindMirror, e.getReturnType()))
+            .filter(e -> e.getParameters().isEmpty())
+            .collect(toSet());
     switch (kindGetters.size()) {
       case 0:
-        errorReporter().reportError(
-            autoOneOfType + " must have a no-arg abstract method returning " + kindMirror,
-            autoOneOfType);
+        errorReporter()
+            .reportError(
+                autoOneOfType,
+                "[AutoOneOfNoKindGetter] %s must have a no-arg abstract method returning %s",
+                autoOneOfType,
+                kindMirror);
         break;
       case 1:
         return Iterables.getOnlyElement(kindGetters);
       default:
         for (ExecutableElement getter : kindGetters) {
-          errorReporter().reportError(
-              "More than one abstract method returns " + kindMirror, getter);
+          errorReporter()
+              .reportError(
+                  getter,
+                  "[AutoOneOfTwoKindGetters] More than one abstract method returns %s",
+                  kindMirror);
         }
     }
     throw new AbortProcessingException();
@@ -239,9 +245,10 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
         // that overrides it. This shows up in AutoValueTest.LukesBase for example.
         // The compilation will fail anyway because the generated concrete classes won't
         // implement this alien method.
-        errorReporter().reportWarning(
-            "Abstract methods in @AutoOneOf classes must be non-void with no parameters",
-            method);
+        errorReporter()
+            .reportWarning(
+                method,
+                "[AutoOneOfParams] Abstract methods in @AutoOneOf classes must have no parameters");
       }
     }
     errorReporter().abortIfAnyError();
@@ -250,32 +257,30 @@ public class AutoOneOfProcessor extends AutoValueOrOneOfProcessor {
   private void defineVarsForType(
       TypeElement type,
       AutoOneOfTemplateVars vars,
-      ImmutableSet<ExecutableElement> propertyMethods,
-      ExecutableElement kindGetter) {
-    vars.generated =
-        generatedAnnotation(elementUtils(), processingEnv.getSourceVersion())
-            .map(annotation -> TypeEncoder.encode(annotation.asType()))
-            .orElse("");
-    Map<ExecutableElement, ImmutableList<AnnotationMirror>> annotatedPropertyMethods =
-        emptyListForEachMethod(propertyMethods);
-    vars.props = propertySet(type, annotatedPropertyMethods);
-    vars.formalTypes = TypeEncoder.formalTypeParametersString(type);
-    vars.actualTypes = TypeSimplifier.actualTypeParametersString(type);
-    vars.wildcardTypes = wildcardTypeParametersString(type);
+      ImmutableMap<ExecutableElement, AnnotatedTypeMirror> propertyMethodsAndTypes,
+      ExecutableElement kindGetter,
+      Nullables nullables) {
+    vars.props =
+        propertySet(
+            propertyMethodsAndTypes,
+            /* annotatedPropertyFields= */ ImmutableListMultimap.of(),
+            /* annotatedPropertyMethods= */ ImmutableListMultimap.of(),
+            nullables);
     vars.kindGetter = kindGetter.getSimpleName().toString();
     vars.kindType = TypeEncoder.encode(kindGetter.getReturnType());
-  }
-
-  Map<ExecutableElement, ImmutableList<AnnotationMirror>> emptyListForEachMethod(
-      ImmutableSet<ExecutableElement> propertyMethods) {
-    return propertyMethods
-        .stream()
-        .collect(toMap(m -> m, m -> ImmutableList.of(), (a, b) -> a, () -> new LinkedHashMap<>()));
+    TypeElement javaIoSerializable = elementUtils().getTypeElement("java.io.Serializable");
+    vars.serializable =
+        javaIoSerializable != null // just in case
+            && typeUtils().isAssignable(type.asType(), javaIoSerializable.asType());
   }
 
   @Override
-  Optional<String> nullableAnnotationForMethod(
-      ExecutableElement propertyMethod, ImmutableList<AnnotationMirror> methodAnnotations) {
+  Optional<String> nullableAnnotationForMethod(ExecutableElement propertyMethod) {
+    if (nullableAnnotationFor(propertyMethod, propertyMethod.getReturnType()).isPresent()) {
+      errorReporter()
+          .reportError(
+              propertyMethod, "[AutoOneOfNullable] @AutoOneOf properties cannot be @Nullable");
+    }
     return Optional.empty();
   }
 

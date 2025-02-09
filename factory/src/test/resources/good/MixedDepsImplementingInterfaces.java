@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,18 +24,18 @@ import com.google.auto.factory.Provided;
 final class MixedDepsImplementingInterfaces {
   @AutoFactory(implementing = {FromInt.class, MarkerA.class})
   MixedDepsImplementingInterfaces(@Provided String s, int i) {}
-  
+
   @AutoFactory(implementing = {FromObject.class, MarkerB.class})
   MixedDepsImplementingInterfaces(Object o) {}
 
   interface FromInt {
     MixedDepsImplementingInterfaces fromInt(int i);
   }
-  
+
   interface FromObject {
     MixedDepsImplementingInterfaces fromObject(Object o);
   }
-  
+
   interface MarkerA {}
 
   interface MarkerB {}

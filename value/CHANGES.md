@@ -1,5 +1,9 @@
 # AutoValue Changes
 
+**This document is obsolete.** For details of changes in releases since 1.5,
+see the [releases page](https://github.com/google/auto/releases) for the Auto
+project.
+
 ## 1.4 → 1.5
 
 ### Functional changes
@@ -77,7 +81,7 @@ later.
 
 * The Extension API is now a committed API, meaning we no longer warn that it is
   likely to change incompatibly. A
-  [guide](https://github.com/google/auto/blob/master/value/userguide/extensions.md)
+  [guide](https://github.com/google/auto/blob/main/value/userguide/extensions.md)
   gives tips on writing extensions.
 
 * Extensions can now return null rather than generated code. In that case the
@@ -249,4 +253,3 @@ later.
 
 
 [AutoValueExtension]: src/main/java/com/google/auto/value/extension/AutoValueExtension.java
-

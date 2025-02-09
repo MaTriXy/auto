@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Google Inc.
+ * Copyright 2015 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,18 @@
  */
 package com.google.auto.value.processor;
 
-import static com.google.common.truth.Truth.assertAbout;
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.testing.compile.JavaSourceSubjectFactory.javaSource;
+import static com.google.testing.compile.CompilationSubject.assertThat;
+import static com.google.testing.compile.Compiler.javac;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.reflect.Reflection;
+import com.google.errorprone.annotations.Keep;
+import com.google.testing.compile.Compilation;
 import com.google.testing.compile.JavaFileObjects;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -47,30 +48,39 @@ import org.junit.runners.Parameterized.Parameters;
  */
 @RunWith(Parameterized.class)
 public class GeneratedDoesNotExistTest {
+  private static final ImmutableList<String> STANDARD_OPTIONS =
+      ImmutableList.of("-A" + Nullables.NULLABLE_OPTION + "=");
 
   @Parameters(name = "{0}")
-  public static Collection<Object[]> data() {
+  public static ImmutableList<Object[]> data() {
     ImmutableList.Builder<Object[]> params = ImmutableList.builder();
-    if (SourceVersion.latestSupported().compareTo(SourceVersion.RELEASE_8) > 0) {
-      // use default options when running on JDK > 8
-      // TODO(b/72513371): use --release 8 once compile-testing supports that
+    int release = SourceVersion.latestSupported().ordinal(); // 8 for Java 8, etc.
+    if (release == 8) {
+      params.add(new Object[] {STANDARD_OPTIONS, "javax.annotation.Generated"});
+    } else {
       params.add(
           new Object[] {
-            ImmutableList.of(), "javax.annotation.processing.Generated",
+            STANDARD_OPTIONS, "javax.annotation.processing.Generated",
           });
+      if (release < 20) {
+        // starting with 20 we get a warning about --release 8 going away soon
+        params.add(
+            new Object[] {
+              ImmutableList.<String>builder()
+                  .addAll(STANDARD_OPTIONS)
+                  .add("--release", "8")
+                  .build(),
+              "javax.annotation.Generated",
+            });
+      }
     }
-    params.add(
-        new Object[] {
-          ImmutableList.of("-source", "8", "-target", "8"), "javax.annotation.Generated",
-        });
     return params.build();
   }
 
   private final ImmutableList<String> javacOptions;
   private final String expectedAnnotation;
 
-  public GeneratedDoesNotExistTest(
-      ImmutableList<String> javacOptions, String expectedAnnotation) {
+  public GeneratedDoesNotExistTest(ImmutableList<String> javacOptions, String expectedAnnotation) {
     this.javacOptions = javacOptions;
     this.expectedAnnotation = expectedAnnotation;
   }
@@ -89,13 +99,12 @@ public class GeneratedDoesNotExistTest {
       ImmutableSet.of("javax.annotation.Generated", "javax.annotation.processing.Generated");
 
   /**
-   * InvocationHandler that forwards every method to an original object, except methods where
-   * there is an implementation in this class with the same signature. So for example in the
-   * subclass {@link ElementsHandler} there is a method
-   * {@link ElementsHandler#getTypeElement(CharSequence)}, which means that a call of
-   * {@link Elements#getTypeElement(CharSequence)} on the proxy with this invocation handler will
-   * end up calling that method, but a call of any of the other methods of {@code Elements} will
-   * end up calling the method on the original object.
+   * InvocationHandler that forwards every method to an original object, except methods where there
+   * is an implementation in this class with the same signature. So for example in the subclass
+   * {@link ElementsHandler} there is a method {@link ElementsHandler#getTypeElement(CharSequence)},
+   * which means that a call of {@link Elements#getTypeElement(CharSequence)} on the proxy with this
+   * invocation handler will end up calling that method, but a call of any of the other methods of
+   * {@code Elements} will end up calling the method on the original object.
    */
   private abstract static class OverridableInvocationHandler<T> implements InvocationHandler {
     final T original;
@@ -131,6 +140,7 @@ public class GeneratedDoesNotExistTest {
       this.ignoredGenerated = ignoredGenerated;
     }
 
+    @Keep
     public TypeElement getTypeElement(CharSequence name) {
       if (GENERATED_ANNOTATIONS.contains(name.toString())) {
         ignoredGenerated.add(name.toString());
@@ -152,6 +162,7 @@ public class GeneratedDoesNotExistTest {
       this.noGeneratedElements = partialProxy(Elements.class, elementsHandler);
     }
 
+    @Keep
     public Elements getElementUtils() {
       return noGeneratedElements;
     }
@@ -165,6 +176,7 @@ public class GeneratedDoesNotExistTest {
       this.ignoredGenerated = ignoredGenerated;
     }
 
+    @Keep
     public void init(ProcessingEnvironment processingEnv) {
       ProcessingEnvironmentHandler processingEnvironmentHandler =
           new ProcessingEnvironmentHandler(processingEnv, ignoredGenerated);
@@ -176,58 +188,61 @@ public class GeneratedDoesNotExistTest {
 
   @Test
   public void test() {
-    JavaFileObject javaFileObject = JavaFileObjects.forSourceLines(
-        "foo.bar.Baz",
-        "package foo.bar;",
-        "",
-        "import com.google.auto.value.AutoValue;",
-        "",
-        "@AutoValue",
-        "public abstract class Baz {",
-        "  public static Baz create() {",
-        "    return new AutoValue_Baz();",
-        "  }",
-        "}");
-    JavaFileObject expectedOutput = JavaFileObjects.forSourceLines(
-        "foo.bar.AutoValue_Baz",
-        "package foo.bar;",
-        "",
-        "final class AutoValue_Baz extends Baz {",
-        "  AutoValue_Baz() {",
-        "  }",
-        "",
-        "  @Override public String toString() {",
-        "    return \"Baz{\"",
-        "        + \"}\";",
-        "  }",
-        "",
-        "  @Override public boolean equals(Object o) {",
-        "    if (o == this) {",
-        "      return true;",
-        "    }",
-        "    if (o instanceof Baz) {",
-        "      return true;",
-        "    }",
-        "    return false;",
-        "  }",
-        "",
-        "  @Override public int hashCode() {",
-        "    int h$ = 1;",
-        "    return h$;",
-        "  }",
-        "}"
-    );
+    JavaFileObject javaFileObject =
+        JavaFileObjects.forSourceLines(
+            "foo.bar.Baz",
+            "package foo.bar;",
+            "",
+            "import com.google.auto.value.AutoValue;",
+            "",
+            "@AutoValue",
+            "public abstract class Baz {",
+            "  public static Baz create() {",
+            "    return new AutoValue_Baz();",
+            "  }",
+            "}");
+    JavaFileObject expectedOutput =
+        JavaFileObjects.forSourceLines(
+            "foo.bar.AutoValue_Baz",
+            "package foo.bar;",
+            "",
+            "final class AutoValue_Baz extends Baz {",
+            "  AutoValue_Baz() {",
+            "  }",
+            "",
+            "  @Override public String toString() {",
+            "    return \"Baz{\"",
+            "        + \"}\";",
+            "  }",
+            "",
+            "  @Override public boolean equals(Object o) {",
+            "    if (o == this) {",
+            "      return true;",
+            "    }",
+            "    if (o instanceof Baz) {",
+            "      return true;",
+            "    }",
+            "    return false;",
+            "  }",
+            "",
+            "  @Override public int hashCode() {",
+            "    int h$ = 1;",
+            "    return h$;",
+            "  }",
+            "}");
     Set<String> ignoredGenerated = ConcurrentHashMap.newKeySet();
     Processor autoValueProcessor = new AutoValueProcessor();
     ProcessorHandler handler = new ProcessorHandler(autoValueProcessor, ignoredGenerated);
     Processor noGeneratedProcessor = partialProxy(Processor.class, handler);
-    assertAbout(javaSource())
-        .that(javaFileObject)
-        .withCompilerOptions(javacOptions)
-        .processedWith(noGeneratedProcessor)
-        .compilesWithoutError()
-        .and()
-        .generatesSources(expectedOutput);
+    Compilation compilation =
+        javac()
+            .withOptions(javacOptions)
+            .withProcessors(noGeneratedProcessor)
+            .compile(javaFileObject);
+    assertThat(compilation).succeededWithoutWarnings();
+    assertThat(compilation)
+        .generatedSourceFile("foo.bar.AutoValue_Baz")
+        .hasSourceEquivalentTo(expectedOutput);
     assertThat(ignoredGenerated).containsExactly(expectedAnnotation);
   }
 }

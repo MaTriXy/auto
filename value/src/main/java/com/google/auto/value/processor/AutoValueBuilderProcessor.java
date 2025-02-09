@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.google.auto.value.processor;
 
-import static com.google.auto.value.processor.AutoValueOrOneOfProcessor.hasAnnotationMirror;
+import static com.google.auto.value.processor.AutoValueishProcessor.hasAnnotationMirror;
 import static com.google.auto.value.processor.ClassNames.AUTO_VALUE_BUILDER_NAME;
 import static com.google.auto.value.processor.ClassNames.AUTO_VALUE_NAME;
 
@@ -30,6 +30,8 @@ import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessor;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessorType;
 
 /**
  * Annotation processor that checks that the type that {@code AutoValue.Builder} is applied to is
@@ -39,6 +41,7 @@ import javax.tools.Diagnostic;
  * @author Éamonn McManus
  */
 @AutoService(Processor.class)
+@IncrementalAnnotationProcessor(IncrementalAnnotationProcessorType.ISOLATING)
 @SupportedAnnotationTypes(AUTO_VALUE_BUILDER_NAME)
 public class AutoValueBuilderProcessor extends AbstractProcessor {
   @Override
@@ -71,8 +74,7 @@ public class AutoValueBuilderProcessor extends AbstractProcessor {
   private void validate(Element annotatedType, String errorMessage) {
     Element container = annotatedType.getEnclosingElement();
     if (!hasAnnotationMirror(container, AUTO_VALUE_NAME)) {
-      processingEnv.getMessager().printMessage(
-          Diagnostic.Kind.ERROR, errorMessage, annotatedType);
+      processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, errorMessage, annotatedType);
     }
   }
 }

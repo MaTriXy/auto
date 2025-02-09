@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import tests.FactoryExtendingAbstractClassWithMultipleConstructors.AbstractFacto
 
 @AutoFactory(extending = AbstractFactory.class)
 final class FactoryExtendingAbstractClassWithMultipleConstructors {
-  static abstract class AbstractFactory {
+  abstract static class AbstractFactory {
     protected AbstractFactory(Object obj) {}
+
     protected AbstractFactory() {}
-    
+
     abstract FactoryExtendingAbstractClassWithMultipleConstructors newInstance();
   }
 }

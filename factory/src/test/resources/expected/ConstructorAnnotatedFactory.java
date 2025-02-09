@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,14 +20,15 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-  )
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class ConstructorAnnotatedFactory {
   private final Provider<Object> objProvider;
 
-  @Inject ConstructorAnnotatedFactory(Provider<Object> objProvider) {
-    this.objProvider = checkNotNull(objProvider, 1);
+  @Inject
+  ConstructorAnnotatedFactory(Provider<Object> objProvider) {
+    this.objProvider = checkNotNull(objProvider, 1, 1);
   }
 
   ConstructorAnnotated create() {
@@ -35,22 +36,24 @@ final class ConstructorAnnotatedFactory {
   }
 
   ConstructorAnnotated create(String s) {
-    return new ConstructorAnnotated(checkNotNull(s, 1));
+    return new ConstructorAnnotated(checkNotNull(s, 1, 1));
   }
 
   ConstructorAnnotated create(int i) {
-    return new ConstructorAnnotated(checkNotNull(objProvider.get(), 1), i);
+    return new ConstructorAnnotated(checkNotNull(objProvider.get(), 1, 2), i);
   }
 
   ConstructorAnnotated create(char c) {
-    return new ConstructorAnnotated(checkNotNull(objProvider.get(), 1), c);
+    return new ConstructorAnnotated(checkNotNull(objProvider.get(), 1, 2), c);
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

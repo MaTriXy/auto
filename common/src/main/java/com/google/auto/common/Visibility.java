@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google, Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import java.util.Set;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Represents the visibility of a given {@link Element}: {@code public}, {@code protected},
@@ -41,7 +42,7 @@ public enum Visibility {
 
   // TODO(ronshapiro): remove this and reference ElementKind.MODULE directly once we start building
   // with -source 9
-  private static final ElementKind MODULE =
+  private static final @Nullable ElementKind MODULE =
       Enums.getIfPresent(ElementKind.class, "MODULE").orNull();
 
   /**
@@ -76,8 +77,9 @@ public enum Visibility {
     Visibility effectiveVisibility = PUBLIC;
     Element currentElement = element;
     while (currentElement != null) {
-      effectiveVisibility =
-          Ordering.natural().min(effectiveVisibility, ofElement(currentElement));
+      // NOTE: We don't use Guava's Comparators.min() because that requires Guava 30, which would
+      // make this library unusable in annotation processors using Bazel < 5.0.
+      effectiveVisibility = Ordering.natural().min(effectiveVisibility, ofElement(currentElement));
       currentElement = currentElement.getEnclosingElement();
     }
     return effectiveVisibility;

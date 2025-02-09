@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google, Inc.
+ * Copyright 2016 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,7 @@ import static com.google.common.truth.Truth.assertAbout;
 import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.Subject;
 
-final class MemoizedMethodSubjectFactory
-    implements Subject.Factory<MemoizedMethodSubject, String> {
+final class MemoizedMethodSubjectFactory implements Subject.Factory<MemoizedMethodSubject, String> {
 
   static MemoizedMethodSubjectFactory memoizeMethod() {
     return new MemoizedMethodSubjectFactory();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Google, Inc.
+ * Copyright 2012 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,151 +15,171 @@
  */
 package com.google.auto.value.processor;
 
-import static com.google.auto.common.GeneratedAnnotations.generatedAnnotation;
 import static com.google.auto.common.MoreElements.getLocalAndInheritedMethods;
-import static com.google.auto.common.MoreElements.getPackage;
-import static com.google.auto.common.MoreElements.isAnnotationPresent;
 import static com.google.auto.value.processor.ClassNames.AUTO_VALUE_NAME;
-import static com.google.auto.value.processor.ClassNames.COPY_ANNOTATIONS_NAME;
+import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Sets.difference;
 import static com.google.common.collect.Sets.intersection;
-import static com.google.common.collect.Sets.union;
+import static java.util.Comparator.naturalOrder;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.Collectors.toSet;
 
-import com.google.auto.common.AnnotationMirrors;
-import com.google.auto.common.MoreElements;
-import com.google.auto.common.MoreTypes;
-import com.google.auto.common.Visibility;
 import com.google.auto.service.AutoService;
 import com.google.auto.value.extension.AutoValueExtension;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import java.lang.annotation.Annotation;
-import java.lang.annotation.Inherited;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.ServiceConfigurationError;
-import java.util.ServiceLoader;
 import java.util.Set;
-import java.util.regex.Pattern;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.Processor;
 import javax.annotation.processing.SupportedAnnotationTypes;
-import javax.annotation.processing.SupportedOptions;
 import javax.lang.model.element.AnnotationMirror;
-import javax.lang.model.element.AnnotationValue;
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
-import javax.lang.model.element.QualifiedNameable;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessor;
+import net.ltgt.gradle.incap.IncrementalAnnotationProcessorType;
 
 /**
  * Javac annotation processor (compiler plugin) for value types; user code never references this
  * class.
  *
- * @see AutoValue
- * @see <a href="https://github.com/google/auto/tree/master/value">AutoValue User's Guide</a>
+ * @see <a href="https://github.com/google/auto/tree/main/value">AutoValue User's Guide</a>
  * @author Éamonn McManus
  */
 @AutoService(Processor.class)
 @SupportedAnnotationTypes(AUTO_VALUE_NAME)
-@SupportedOptions("com.google.auto.value.OmitIdentifiers")
-public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
+@IncrementalAnnotationProcessor(IncrementalAnnotationProcessorType.DYNAMIC)
+public class AutoValueProcessor extends AutoValueishProcessor {
+  static final String OMIT_IDENTIFIERS_OPTION = "com.google.auto.value.OmitIdentifiers";
+
+  // We moved MemoizeExtension to a different package, which had an unexpected effect:
+  // now if an old version of AutoValue is in the class path, ServiceLoader can pick up both the
+  // old and the new versions of MemoizeExtension. So we exclude the old version if we see it.
+  // The new version will be bundled with this processor so we should always find it.
+  private static final String OLD_MEMOIZE_EXTENSION =
+      "com.google.auto.value.extension.memoized.MemoizeExtension";
+
   public AutoValueProcessor() {
     this(AutoValueProcessor.class.getClassLoader());
   }
 
   @VisibleForTesting
   AutoValueProcessor(ClassLoader loaderForExtensions) {
-    super(AUTO_VALUE_NAME);
-    this.extensions = null;
-    this.loaderForExtensions = loaderForExtensions;
+    this(ImmutableList.of(), loaderForExtensions);
   }
 
   @VisibleForTesting
-  public AutoValueProcessor(Iterable<? extends AutoValueExtension> extensions) {
-    super(AUTO_VALUE_NAME);
-    this.extensions = ImmutableList.<AutoValueExtension>copyOf(extensions);
-    this.loaderForExtensions = null;
+  public AutoValueProcessor(Iterable<? extends AutoValueExtension> testExtensions) {
+    this(testExtensions, null);
   }
 
-  /**
-   * Used to test whether a fully-qualified name is AutoValue.class.getCanonicalName() or one of its
-   * nested annotations.
-   */
-  private static final Pattern AUTO_VALUE_CLASSNAME_PATTERN =
-      Pattern.compile(Pattern.quote(AUTO_VALUE_NAME) + "(\\..*)?");
+  private AutoValueProcessor(
+      Iterable<? extends AutoValueExtension> testExtensions, ClassLoader loaderForExtensions) {
+    super(AUTO_VALUE_NAME, /* appliesToInterfaces= */ false);
+    this.extensions = ImmutableList.copyOf(testExtensions);
+    this.loaderForExtensions = loaderForExtensions;
+  }
 
   // Depending on how this AutoValueProcessor was constructed, we might already have a list of
-  // extensions when init() is run, or, if `extensions` is null, we have a ClassLoader that will be
-  // used to get the list using the ServiceLoader API.
+  // extensions when init() is run, or, if `loaderForExtensions` is not null, it is a ClassLoader
+  // that will be used to get the list using the ServiceLoader API.
   private ImmutableList<AutoValueExtension> extensions;
   private final ClassLoader loaderForExtensions;
+
+  @VisibleForTesting
+  static ImmutableList<AutoValueExtension> extensionsFromLoader(ClassLoader loader) {
+    return SimpleServiceLoader.load(AutoValueExtension.class, loader).stream()
+        .filter(ext -> !ext.getClass().getName().equals(OLD_MEMOIZE_EXTENSION))
+        .collect(toImmutableList());
+  }
 
   @Override
   public synchronized void init(ProcessingEnvironment processingEnv) {
     super.init(processingEnv);
 
-    if (extensions == null) {
+    if (loaderForExtensions != null) {
+      checkState(extensions.isEmpty());
       try {
-        extensions = ImmutableList.copyOf(
-            ServiceLoader.load(AutoValueExtension.class, loaderForExtensions));
-        // ServiceLoader.load returns a lazily-evaluated Iterable, so evaluate it eagerly now
-        // to discover any exceptions.
-      } catch (Throwable t) {
-        StringBuilder warning = new StringBuilder();
-        warning.append(
-            "An exception occurred while looking for AutoValue extensions. "
-                + "No extensions will function.");
-        if (t instanceof ServiceConfigurationError) {
-          warning.append(" This may be due to a corrupt jar file in the compiler's classpath.");
-        }
-        warning.append(" Exception: ").append(t);
-        errorReporter().reportWarning(warning.toString(), null);
+        extensions = extensionsFromLoader(loaderForExtensions);
+      } catch (RuntimeException | Error e) {
+        String explain =
+            (e instanceof ServiceConfigurationError)
+                ? " This may be due to a corrupt jar file in the compiler's classpath."
+                : "";
+        errorReporter()
+            .reportWarning(
+                null,
+                "[AutoValueExtensionsException] An exception occurred while looking for AutoValue"
+                    + " extensions. No extensions will function.%s\n%s",
+                explain,
+                Throwables.getStackTraceAsString(e));
         extensions = ImmutableList.of();
       }
     }
   }
 
-  private static String generatedSubclassName(TypeElement type, int depth) {
+  @Override
+  public ImmutableSet<String> getSupportedOptions() {
+    ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+    AutoValueExtension.IncrementalExtensionType incrementalType =
+        extensions.stream()
+            .map(e -> e.incrementalType(processingEnv))
+            .min(naturalOrder())
+            .orElse(AutoValueExtension.IncrementalExtensionType.ISOLATING);
+    builder
+        .add(OMIT_IDENTIFIERS_OPTION)
+        .add(Nullables.NULLABLE_OPTION)
+        .addAll(optionsFor(incrementalType));
+    for (AutoValueExtension extension : extensions) {
+      builder.addAll(extension.getSupportedOptions());
+    }
+    return builder.build();
+  }
+
+  private static ImmutableSet<String> optionsFor(
+      AutoValueExtension.IncrementalExtensionType incrementalType) {
+    switch (incrementalType) {
+      case ISOLATING:
+        return ImmutableSet.of(IncrementalAnnotationProcessorType.ISOLATING.getProcessorOption());
+      case AGGREGATING:
+        return ImmutableSet.of(IncrementalAnnotationProcessorType.AGGREGATING.getProcessorOption());
+      case UNKNOWN:
+        return ImmutableSet.of();
+    }
+    throw new AssertionError(incrementalType);
+  }
+
+  static String generatedSubclassName(TypeElement type, int depth) {
     return generatedClassName(type, Strings.repeat("$", depth) + "AutoValue_");
   }
 
   @Override
   void processType(TypeElement type) {
-    if (!hasAnnotationMirror(type, AUTO_VALUE_NAME)) {
-      // This shouldn't happen unless the compilation environment is buggy,
-      // but it has happened in the past and can crash the compiler.
-      errorReporter().abortWithError("annotation processor for @AutoValue was invoked with a type"
-          + " that does not have that annotation; this is probably a compiler bug", type);
-    }
-    if (type.getKind() != ElementKind.CLASS) {
-      errorReporter().abortWithError("@AutoValue only applies to classes", type);
-    }
     if (ancestorIsAutoValue(type)) {
-      errorReporter().abortWithError("One @AutoValue class may not extend another", type);
+      errorReporter()
+          .abortWithError(type, "[AutoValueExtend] One @AutoValue class may not extend another");
     }
     if (implementsAnnotation(type)) {
-      errorReporter().abortWithError("@AutoValue may not be used to implement an annotation"
-          + " interface; try using @AutoAnnotation instead", type);
+      errorReporter()
+          .abortWithError(
+              type,
+              "[AutoValueImplAnnotation] @AutoValue may not be used to implement an annotation"
+                  + " interface; try using @AutoAnnotation or @AutoBuilder instead");
     }
-    checkModifiersIfNested(type);
 
     // We are going to classify the methods of the @AutoValue class into several categories.
     // This covers the methods in the class itself and the ones it inherits from supertypes.
@@ -178,178 +198,109 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
     // If there are abstract methods that don't fit any of the categories above, that is an error
     // which we signal explicitly to avoid confusion.
 
-    ImmutableSet<ExecutableElement> methods = getLocalAndInheritedMethods(
-        type, processingEnv.getTypeUtils(), processingEnv.getElementUtils());
+    ImmutableSet<ExecutableElement> methods =
+        getLocalAndInheritedMethods(
+            type, processingEnv.getTypeUtils(), processingEnv.getElementUtils());
     ImmutableSet<ExecutableElement> abstractMethods = abstractMethodsIn(methods);
 
     BuilderSpec builderSpec = new BuilderSpec(type, processingEnv, errorReporter());
     Optional<BuilderSpec.Builder> builder = builderSpec.getBuilder();
     ImmutableSet<ExecutableElement> toBuilderMethods;
+    ImmutableSet<ExecutableElement> builderAbstractMethods;
     if (builder.isPresent()) {
-      toBuilderMethods = builder.get().toBuilderMethods(typeUtils(), abstractMethods);
+      toBuilderMethods = builder.get().toBuilderMethods(typeUtils(), type, abstractMethods);
+      builderAbstractMethods = builder.get().builderAbstractMethods();
     } else {
       toBuilderMethods = ImmutableSet.of();
+      builderAbstractMethods = ImmutableSet.of();
     }
 
-    ImmutableSet<ExecutableElement> propertyMethods =
-        propertyMethodsIn(immutableSetDifference(abstractMethods, toBuilderMethods));
-    ImmutableBiMap<String, ExecutableElement> properties = propertyNameToMethodMap(propertyMethods);
+    ImmutableMap<ExecutableElement, AnnotatedTypeMirror> propertyMethodsAndTypes =
+        propertyMethodsIn(immutableSetDifference(abstractMethods, toBuilderMethods), type);
+    ImmutableMap<String, ExecutableElement> properties =
+        propertyNameToMethodMap(propertyMethodsAndTypes.keySet());
 
     ExtensionContext context =
-        new ExtensionContext(processingEnv, type, properties, abstractMethods);
+        new ExtensionContext(
+            this,
+            processingEnv,
+            type,
+            properties,
+            propertyMethodsAndTypes,
+            abstractMethods,
+            builderAbstractMethods);
     ImmutableList<AutoValueExtension> applicableExtensions = applicableExtensions(type, context);
-    ImmutableSet<ExecutableElement> consumedMethods = methodsConsumedByExtensions(
-        type, applicableExtensions, context, abstractMethods, properties);
+    ImmutableSet<ExecutableElement> consumedMethods =
+        methodsConsumedByExtensions(
+            type, applicableExtensions, context, abstractMethods, properties);
+    ImmutableSet<ExecutableElement> consumedBuilderMethods =
+        builderMethodsConsumedByExtensions(
+            type, applicableExtensions, context, builderAbstractMethods);
 
     if (!consumedMethods.isEmpty()) {
       ImmutableSet<ExecutableElement> allAbstractMethods = abstractMethods;
       abstractMethods = immutableSetDifference(abstractMethods, consumedMethods);
       toBuilderMethods = immutableSetDifference(toBuilderMethods, consumedMethods);
-      propertyMethods =
-          propertyMethodsIn(immutableSetDifference(abstractMethods, toBuilderMethods));
-      properties = propertyNameToMethodMap(propertyMethods);
-      context = new ExtensionContext(processingEnv, type, properties, allAbstractMethods);
+      propertyMethodsAndTypes =
+          propertyMethodsIn(immutableSetDifference(abstractMethods, toBuilderMethods), type);
+      properties = propertyNameToMethodMap(propertyMethodsAndTypes.keySet());
+      context =
+          new ExtensionContext(
+              this,
+              processingEnv,
+              type,
+              properties,
+              propertyMethodsAndTypes,
+              allAbstractMethods,
+              builderAbstractMethods);
     }
 
+    ImmutableSet<ExecutableElement> propertyMethods = propertyMethodsAndTypes.keySet();
     boolean extensionsPresent = !applicableExtensions.isEmpty();
     validateMethods(type, abstractMethods, toBuilderMethods, propertyMethods, extensionsPresent);
 
-    String finalSubclass = generatedSubclassName(type, 0);
+    String finalSubclass = TypeSimplifier.simpleNameOf(generatedSubclassName(type, 0));
     AutoValueTemplateVars vars = new AutoValueTemplateVars();
-    vars.pkg = TypeSimplifier.packageNameOf(type);
-    vars.origClass = TypeSimplifier.classNameOf(type);
-    vars.simpleClassName = TypeSimplifier.simpleNameOf(vars.origClass);
-    vars.finalSubclass = TypeSimplifier.simpleNameOf(finalSubclass);
-    vars.types = processingEnv.getTypeUtils();
-    vars.identifiers =
-        !processingEnv.getOptions().containsKey("com.google.auto.value.OmitIdentifiers");
-    Map<ObjectMethod, ExecutableElement> methodsToGenerate =
-        determineObjectMethodsToGenerate(methods);
-    vars.toString = methodsToGenerate.containsKey(ObjectMethod.TO_STRING);
-    vars.hashCode = methodsToGenerate.containsKey(ObjectMethod.HASH_CODE);
-    vars.equals = methodsToGenerate.containsKey(ObjectMethod.EQUALS);
-    vars.equalsParameterType = equalsParameterType(methodsToGenerate);
-    defineVarsForType(type, vars, toBuilderMethods, propertyMethods, builder);
+    vars.identifiers = !processingEnv.getOptions().containsKey(OMIT_IDENTIFIERS_OPTION);
+    Nullables nullables = Nullables.fromMethods(processingEnv, methods);
+    defineSharedVarsForType(type, methods, nullables, vars);
+    defineVarsForType(
+        type,
+        vars,
+        toBuilderMethods,
+        propertyMethodsAndTypes,
+        builder,
+        nullables,
+        consumedBuilderMethods);
+    vars.builtType = vars.origClass + vars.actualTypes;
+    vars.build = "new " + finalSubclass + vars.actualTypes;
 
-    // Only copy annotations from a class if it has @AutoValue.CopyAnnotations.
-    if (hasAnnotationMirror(type, COPY_ANNOTATIONS_NAME)) {
-      Set<String> excludedAnnotations =
-          union(getExcludedClasses(type), getAnnotationsMarkedWithInherited(type));
-
-      vars.annotations = copyAnnotations(type, type, excludedAnnotations);
-    } else {
-      vars.annotations = ImmutableList.of();
-    }
+    // If we've encountered problems then we might end up invoking extensions with inconsistent
+    // state. Anyway we probably don't want to generate code which is likely to provoke further
+    // compile errors to add to the ones we've already seen.
+    errorReporter().abortIfAnyError();
 
     GwtCompatibility gwtCompatibility = new GwtCompatibility(type);
     vars.gwtCompatibleAnnotation = gwtCompatibility.gwtCompatibleAnnotationString();
 
+    builder.ifPresent(context::setBuilderContext);
     int subclassDepth = writeExtensions(type, context, applicableExtensions);
     String subclass = generatedSubclassName(type, subclassDepth);
     vars.subclass = TypeSimplifier.simpleNameOf(subclass);
+    vars.finalSubclass = finalSubclass;
     vars.isFinal = (subclassDepth == 0);
+    vars.modifiers = vars.isFinal ? "final " : "abstract ";
+    vars.builderClassModifiers =
+        consumedBuilderMethods.isEmpty()
+            ? vars.isFinal ? "static final " : "static "
+            : "abstract static ";
 
     String text = vars.toText();
     text = TypeEncoder.decode(text, processingEnv, vars.pkg, type.asType());
     text = Reformatter.fixup(text);
     writeSourceFile(subclass, text, type);
     GwtSerialization gwtSerialization = new GwtSerialization(gwtCompatibility, processingEnv, type);
-    gwtSerialization.maybeWriteGwtSerializer(vars);
-  }
-
-  /** Implements the semantics of {@code AutoValue.CopyAnnotations}; see its javadoc. */
-  private ImmutableList<String> copyAnnotations(
-      Element autoValueType,
-      Element typeOrMethod,
-      Set<String> excludedAnnotations) {
-    ImmutableList<AnnotationMirror> annotationsToCopy =
-        annotationsToCopy(autoValueType, typeOrMethod, excludedAnnotations);
-    return annotationStrings(annotationsToCopy);
-  }
-
-  /** Implements the semantics of {@code AutoValue.CopyAnnotations}; see its javadoc. */
-  private ImmutableList<AnnotationMirror> annotationsToCopy(
-      Element autoValueType,
-      Element typeOrMethod,
-      Set<String> excludedAnnotations) {
-    ImmutableList.Builder<AnnotationMirror> result = ImmutableList.builder();
-    for (AnnotationMirror annotation : typeOrMethod.getAnnotationMirrors()) {
-      String annotationFqName = getAnnotationFqName(annotation);
-      // To be included, the annotation should not be @AutoValue or any of its nested annotations,
-      // and it should not be in the excludedAnnotations set.
-      if (!AUTO_VALUE_CLASSNAME_PATTERN.matcher(annotationFqName).matches()
-          && !excludedAnnotations.contains(annotationFqName)
-          && annotationVisibleFrom(annotation, autoValueType)) {
-        result.add(annotation);
-      }
-    }
-
-    return result.build();
-  }
-
-  private boolean annotationVisibleFrom(AnnotationMirror annotation, Element from) {
-    Element annotationElement = annotation.getAnnotationType().asElement();
-    Visibility visibility = Visibility.effectiveVisibilityOfElement(annotationElement);
-    switch (visibility) {
-      case PUBLIC:
-        return true;
-      case PROTECTED:
-        // If the annotation is protected, it must be inside another class, call it C. If our
-        // @AutoValue class is Foo then, for the annotation to be visible, either Foo must be in the
-        // same package as C or Foo must be a subclass of C. If the annotation is visible from Foo
-        // then it is also visible from our generated subclass AutoValue_Foo.
-        // The protected case only applies to method annotations. An annotation on the AutoValue_Foo
-        // class itself can't be protected, even if AutoValue_Foo ultimately inherits from the
-        // class that defines the annotation. The JLS says "Access is permitted only within the
-        // body of a subclass":
-        // https://docs.oracle.com/javase/specs/jls/se8/html/jls-6.html#jls-6.6.2.1
-        // AutoValue_Foo is a top-level class, so an annotation on it cannot be in the body of a
-        // subclass of anything.
-        return getPackage(annotationElement).equals(getPackage(from))
-            || typeUtils().isSubtype(
-                from.asType(), annotationElement.getEnclosingElement().asType());
-      case DEFAULT:
-        return getPackage(annotationElement).equals(getPackage(from));
-      default:
-        return false;
-    }
-  }
-
-  /**
-   * Returns the fully-qualified name of an annotation-mirror, e.g.
-   * "com.google.auto.value.AutoValue".
-   */
-  private static String getAnnotationFqName(AnnotationMirror annotation) {
-    return ((QualifiedNameable) annotation.getAnnotationType().asElement())
-        .getQualifiedName().toString();
-  }
-
-  /**
-   * Returns the contents of the {@code AutoValue.CopyAnnotations.exclude} element, as a list of
-   * strings that are fully-qualified class names.
-   */
-  private Set<String> getExcludedClasses(Element element) {
-    Optional<AnnotationMirror> maybeAnnotation =
-        getAnnotationMirror(element, COPY_ANNOTATIONS_NAME);
-    if (!maybeAnnotation.isPresent()) {
-      return ImmutableSet.of();
-    }
-
-    @SuppressWarnings("unchecked")
-    List<AnnotationValue> excludedClasses = (List<AnnotationValue>)
-        AnnotationMirrors.getAnnotationValue(maybeAnnotation.get(), "exclude").getValue();
-    return excludedClasses
-        .stream()
-        .map(annotationValue -> MoreTypes.asTypeElement((DeclaredType) annotationValue.getValue()))
-        .map(typeElement -> typeElement.getQualifiedName().toString())
-        .collect(toSet());
-  }
-
-  private static Set<String> getAnnotationsMarkedWithInherited(Element element) {
-    return element.getAnnotationMirrors().stream()
-        .filter(a -> isAnnotationPresent(a.getAnnotationType().asElement(), Inherited.class))
-        .map(a -> getAnnotationFqName(a))
-        .collect(toSet());
+    gwtSerialization.maybeWriteGwtSerializer(vars, finalSubclass);
   }
 
   // Invokes each of the given extensions to generate its subclass, and returns the number of
@@ -406,10 +357,12 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
         applicableExtensions.add(0, finalExtensions.get(0));
         break;
       default:
-        errorReporter().reportError(
-            "More than one extension wants to generate the final class: "
-                + finalExtensions.stream().map(this::extensionName).collect(joining(", ")),
-            type);
+        errorReporter()
+            .reportError(
+                type,
+                "[AutoValueMultiFinal] More than one extension wants to generate the final class:"
+                    + " %s",
+                finalExtensions.stream().map(this::extensionName).collect(joining(", ")));
         break;
     }
     return ImmutableList.copyOf(applicableExtensions);
@@ -420,36 +373,78 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
       ImmutableList<AutoValueExtension> applicableExtensions,
       ExtensionContext context,
       ImmutableSet<ExecutableElement> abstractMethods,
-      ImmutableBiMap<String, ExecutableElement> properties) {
+      ImmutableMap<String, ExecutableElement> properties) {
     Set<ExecutableElement> consumed = new HashSet<>();
     for (AutoValueExtension extension : applicableExtensions) {
       Set<ExecutableElement> consumedHere = new HashSet<>();
       for (String consumedProperty : extension.consumeProperties(context)) {
         ExecutableElement propertyMethod = properties.get(consumedProperty);
         if (propertyMethod == null) {
-          errorReporter().reportError(
-              "Extension " + extensionName(extension)
-                  + " wants to consume a property that does not exist: " + consumedProperty,
-              type);
+          errorReporter()
+              .reportError(
+                  type,
+                  "[AutoValueConsumeNonexist] Extension %s wants to consume a property that does"
+                      + " not exist: %s",
+                  extensionName(extension),
+                  consumedProperty);
         } else {
           consumedHere.add(propertyMethod);
         }
       }
       for (ExecutableElement consumedMethod : extension.consumeMethods(context)) {
         if (!abstractMethods.contains(consumedMethod)) {
-          errorReporter().reportError(
-              "Extension " + extensionName(extension)
-                  + " wants to consume a method that is not one of the abstract methods in this"
-                  + " class: " + consumedMethod,
-              type);
+          errorReporter()
+              .reportError(
+                  type,
+                  "[AutoValueConsumeNotAbstract] Extension %s wants to consume a method that is"
+                      + " not one of the abstract methods in this class: %s",
+                  extensionName(extension),
+                  consumedMethod);
         } else {
           consumedHere.add(consumedMethod);
         }
       }
       for (ExecutableElement repeat : intersection(consumed, consumedHere)) {
-        errorReporter().reportError(
-            "Extension " + extensionName(extension) + " wants to consume a method that was already"
-                + " consumed by another extension", repeat);
+        errorReporter()
+            .reportError(
+                repeat,
+                "[AutoValueMultiConsume] Extension %s wants to consume a method that was already"
+                    + " consumed by another extension",
+                extensionName(extension));
+      }
+      consumed.addAll(consumedHere);
+    }
+    return ImmutableSet.copyOf(consumed);
+  }
+
+  private ImmutableSet<ExecutableElement> builderMethodsConsumedByExtensions(
+      TypeElement type,
+      ImmutableList<AutoValueExtension> applicableExtensions,
+      ExtensionContext context,
+      ImmutableSet<ExecutableElement> builderAbstractMethods) {
+    Set<ExecutableElement> consumed = new HashSet<>();
+    for (AutoValueExtension extension : applicableExtensions) {
+      Set<ExecutableElement> consumedHere = new HashSet<>();
+      for (ExecutableElement consumedMethod : extension.consumeBuilderMethods(context)) {
+        if (!builderAbstractMethods.contains(consumedMethod)) {
+          errorReporter()
+              .reportError(
+                  type,
+                  "[AutoValueBuilderConsumeNotAbstract] Extension %s wants to consume a method that"
+                      + " is not one of the abstract methods in this class: %s",
+                  extensionName(extension),
+                  consumedMethod);
+        } else {
+          consumedHere.add(consumedMethod);
+        }
+      }
+      for (ExecutableElement repeat : intersection(consumed, consumedHere)) {
+        errorReporter()
+            .reportError(
+                repeat,
+                "[AutoValueBuilderConsumeNotAbstract] Extension %s wants to consume a method that"
+                    + " was already consumed by another extension",
+                extensionName(extension));
       }
       consumed.addAll(consumedHere);
     }
@@ -471,11 +466,13 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
         // ElementUtils.override that sometimes fails to recognize that one method overrides
         // another, and therefore leaves us with both an abstract method and the subclass method
         // that overrides it. This shows up in AutoValueTest.LukesBase for example.
-        String message = "Abstract method is neither a property getter nor a Builder converter";
-        if (extensionsPresent) {
-          message += ", and no extension consumed it";
-        }
-        errorReporter().reportWarning(message, method);
+        String extensionMessage = extensionsPresent ? ", and no extension consumed it" : "";
+        errorReporter()
+            .reportWarning(
+                method,
+                "[AutoValueBuilderWhat] Abstract method is neither a property getter nor a Builder"
+                    + " converter%s",
+                extensionMessage);
       }
     }
     errorReporter().abortIfAnyError();
@@ -489,102 +486,39 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
       TypeElement type,
       AutoValueTemplateVars vars,
       ImmutableSet<ExecutableElement> toBuilderMethods,
-      ImmutableSet<ExecutableElement> propertyMethods,
-      Optional<BuilderSpec.Builder> builder) {
-    // We can't use ImmutableList.toImmutableList() for obscure Google-internal reasons.
+      ImmutableMap<ExecutableElement, AnnotatedTypeMirror> propertyMethodsAndTypes,
+      Optional<BuilderSpec.Builder> maybeBuilder,
+      Nullables nullables,
+      ImmutableSet<ExecutableElement> consumedBuilderAbstractMethods) {
+    ImmutableSet<ExecutableElement> propertyMethods = propertyMethodsAndTypes.keySet();
     vars.toBuilderMethods =
-        ImmutableList.copyOf(toBuilderMethods.stream().map(SimpleMethod::new).collect(toList()));
-    vars.generated =
-        generatedAnnotation(processingEnv.getElementUtils(), processingEnv.getSourceVersion())
-            .map(annotation -> TypeEncoder.encode(annotation.asType()))
-            .orElse("");
-    ImmutableBiMap<ExecutableElement, String> methodToPropertyName =
-        propertyNameToMethodMap(propertyMethods).inverse();
-    ImmutableMap<ExecutableElement, ImmutableList<AnnotationMirror>> annotatedPropertyMethods =
+        toBuilderMethods.stream().map(SimpleMethod::new).collect(toImmutableList());
+    vars.toBuilderConstructor = !vars.toBuilderMethods.isEmpty();
+    ImmutableListMultimap<ExecutableElement, AnnotationMirror> annotatedPropertyFields =
+        propertyFieldAnnotationMap(type, propertyMethods);
+    ImmutableListMultimap<ExecutableElement, AnnotationMirror> annotatedPropertyMethods =
         propertyMethodAnnotationMap(type, propertyMethods);
-    vars.props = propertySet(type, annotatedPropertyMethods);
-    vars.serialVersionUID = getSerialVersionUID(type);
-    vars.formalTypes = TypeEncoder.formalTypeParametersString(type);
-    vars.actualTypes = TypeSimplifier.actualTypeParametersString(type);
-    vars.wildcardTypes = wildcardTypeParametersString(type);
+    vars.props =
+        propertySet(
+            propertyMethodsAndTypes,
+            annotatedPropertyFields,
+            annotatedPropertyMethods,
+            nullables);
     // Check for @AutoValue.Builder and add appropriate variables if it is present.
-    if (builder.isPresent()) {
-      builder.get().defineVars(vars, methodToPropertyName);
-    }
-  }
-
-  private ImmutableMap<ExecutableElement, ImmutableList<AnnotationMirror>>
-      propertyMethodAnnotationMap(
-          TypeElement type, ImmutableSet<ExecutableElement> propertyMethods) {
-    ImmutableSetMultimap<ExecutableElement, String> excludedAnnotationsMap =
-        allMethodExcludedAnnotations(propertyMethods);
-    ImmutableMap.Builder<ExecutableElement, ImmutableList<AnnotationMirror>> builder =
-        ImmutableMap.builder();
-    for (ExecutableElement propertyMethod : propertyMethods) {
-      builder.put(propertyMethod,
-          propertyMethodAnnotations(type, propertyMethod, excludedAnnotationsMap));
-    }
-    return builder.build();
+    maybeBuilder.ifPresent(
+        builder -> {
+          ImmutableBiMap<ExecutableElement, String> methodToPropertyName =
+              propertyNameToMethodMap(propertyMethods).inverse();
+          builder.defineVarsForAutoValue(
+              vars, methodToPropertyName, nullables, consumedBuilderAbstractMethods);
+          vars.builderName = "Builder";
+          vars.builderAnnotations = copiedClassAnnotations(builder.builderType());
+        });
   }
 
   @Override
-  Optional<String> nullableAnnotationForMethod(
-      ExecutableElement propertyMethod, ImmutableList<AnnotationMirror> methodAnnotations) {
-    OptionalInt nullableAnnotationIndex = nullableAnnotationIndex(methodAnnotations);
-    if (nullableAnnotationIndex.isPresent()) {
-      ImmutableList<String> annotations = annotationStrings(methodAnnotations);
-      return Optional.of(annotations.get(nullableAnnotationIndex.getAsInt()));
-    } else {
-      List<? extends AnnotationMirror> typeAnnotations =
-          propertyMethod.getReturnType().getAnnotationMirrors();
-      return
-          nullableAnnotationIndex(typeAnnotations).isPresent()
-              ? Optional.of("")
-              : Optional.empty();
-    }
-  }
-
-  private static OptionalInt nullableAnnotationIndex(List<? extends AnnotationMirror> annotations) {
-    for (int i = 0; i < annotations.size(); i++) {
-      if (isNullable(annotations.get(i))) {
-        return OptionalInt.of(i);
-      }
-    }
-    return OptionalInt.empty();
-  }
-
-  private static boolean isNullable(AnnotationMirror annotation) {
-    return annotation.getAnnotationType().asElement().getSimpleName().contentEquals("Nullable");
-  }
-
-  private ImmutableList<AnnotationMirror> propertyMethodAnnotations(
-      TypeElement type,
-      ExecutableElement method,
-      ImmutableSetMultimap<ExecutableElement, String> excludedAnnotationsMap) {
-    ImmutableSet<String> excludedAnnotations =
-        ImmutableSet.<String>builder()
-            .addAll(excludedAnnotationsMap.get(method))
-            .add(Override.class.getCanonicalName())
-            .build();
-
-    // We need to exclude type annotations from the ones being output on the method, since
-    // they will be output as part of the method's return type.
-    Set<String> typeAnnotations = method.getReturnType().getAnnotationMirrors().stream()
-        .map(a -> a.getAnnotationType().asElement())
-        .map(MoreElements::asType)
-        .map(e -> e.getQualifiedName().toString())
-        .collect(toSet());
-    Set<String> excluded = union(excludedAnnotations, typeAnnotations);
-    return annotationsToCopy(type, method, excluded);
-  }
-
-  private ImmutableSetMultimap<ExecutableElement, String> allMethodExcludedAnnotations(
-      Iterable<ExecutableElement> methods) {
-    ImmutableSetMultimap.Builder<ExecutableElement, String> result = ImmutableSetMultimap.builder();
-    for (ExecutableElement method : methods) {
-      result.putAll(method, getExcludedClasses(method));
-    }
-    return result.build();
+  Optional<String> nullableAnnotationForMethod(ExecutableElement propertyMethod) {
+    return nullableAnnotationFor(propertyMethod, propertyMethod.getReturnType());
   }
 
   static ImmutableSet<ExecutableElement> prefixedGettersIn(Iterable<ExecutableElement> methods) {
@@ -593,8 +527,10 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
       String name = method.getSimpleName().toString();
       // TODO(emcmanus): decide whether getfoo() (without a capital) is a getter. Currently it is.
       boolean get = name.startsWith("get") && !name.equals("get");
-      boolean is = name.startsWith("is") && !name.equals("is")
-          && method.getReturnType().getKind() == TypeKind.BOOLEAN;
+      boolean is =
+          name.startsWith("is")
+              && !name.equals("is")
+              && method.getReturnType().getKind() == TypeKind.BOOLEAN;
       if (get || is) {
         getters.add(method);
       }
@@ -628,7 +564,7 @@ public class AutoValueProcessor extends AutoValueOrOneOfProcessor {
     if (Collections.disjoint(a, b)) {
       return a;
     } else {
-      return ImmutableSet.copyOf(difference(a, b));
+      return difference(a, b).immutableCopy();
     }
   }
 }

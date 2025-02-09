@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,27 +20,29 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-  )
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class SimpleClassMixedDepsFactory {
   private final Provider<String> providedDepAProvider;
 
-  @Inject SimpleClassMixedDepsFactory(
-      @AQualifier Provider<String> providedDepAProvider) {
-    this.providedDepAProvider = checkNotNull(providedDepAProvider, 1);
+  @Inject
+  SimpleClassMixedDepsFactory(@AQualifier Provider<String> providedDepAProvider) {
+    this.providedDepAProvider = checkNotNull(providedDepAProvider, 1, 1);
   }
 
   SimpleClassMixedDeps create(String depB) {
     return new SimpleClassMixedDeps(
-        checkNotNull(providedDepAProvider.get(), 1), checkNotNull(depB, 2));
+        checkNotNull(providedDepAProvider.get(), 1, 2), checkNotNull(depB, 2, 2));
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,8 +31,12 @@ import javax.annotation.Nullable;
 @GwtCompatible(serializable = true)
 abstract class GwtValueType implements Serializable {
   abstract String string();
+
   abstract int integer();
-  @Nullable abstract GwtValueType other();
+
+  @Nullable
+  abstract GwtValueType other();
+
   abstract List<GwtValueType> others();
 
   static GwtValueType create(String string, int integer, @Nullable GwtValueType other) {
@@ -40,10 +44,7 @@ abstract class GwtValueType implements Serializable {
   }
 
   static GwtValueType create(
-      String string,
-      int integer,
-      @Nullable GwtValueType other,
-      List<GwtValueType> others) {
+      String string, int integer, @Nullable GwtValueType other, List<GwtValueType> others) {
     return new AutoValue_GwtValueType(string, integer, other, others);
   }
 }

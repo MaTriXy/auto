@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Google, Inc.
+ * Copyright 2016 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-  )
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class SimpleClassNullableParametersFactory {
   private final Provider<String> providedNullableProvider;
 
@@ -33,8 +33,8 @@ final class SimpleClassNullableParametersFactory {
   SimpleClassNullableParametersFactory(
       Provider<String> providedNullableProvider,
       @BQualifier Provider<String> providedQualifiedNullableProvider) {
-    this.providedNullableProvider = checkNotNull(providedNullableProvider, 1);
-    this.providedQualifiedNullableProvider = checkNotNull(providedQualifiedNullableProvider, 2);
+    this.providedNullableProvider = checkNotNull(providedNullableProvider, 1, 2);
+    this.providedQualifiedNullableProvider = checkNotNull(providedQualifiedNullableProvider, 2, 2);
   }
 
   SimpleClassNullableParameters create(
@@ -46,11 +46,13 @@ final class SimpleClassNullableParametersFactory {
         providedQualifiedNullableProvider.get());
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

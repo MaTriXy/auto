@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,28 +22,39 @@ import javax.lang.model.type.TypeMirror;
 @AutoValue
 abstract class ImplementationMethodDescriptor {
   abstract String name();
+
   abstract TypeMirror returnType();
+
   abstract boolean publicMethod();
+
   abstract ImmutableSet<Parameter> passedParameters();
+
   abstract boolean isVarArgs();
 
+  abstract ImmutableSet<TypeMirror> exceptions();
+
   static Builder builder() {
-    return new AutoValue_ImplementationMethodDescriptor.Builder()
-        .publicMethod(true)
-        .isVarArgs(false);
+    return new AutoValue_ImplementationMethodDescriptor.Builder();
   }
 
   @AutoValue.Builder
-  static abstract class Builder {
+  abstract static class Builder {
     abstract Builder name(String name);
-    abstract Builder returnType(TypeMirror returnTypeElement);
-    abstract Builder publicMethod(boolean publicMethod);
-    abstract Builder passedParameters(Iterable<Parameter> passedParameters);
-    abstract Builder isVarArgs(boolean isVarargs);
-    abstract ImplementationMethodDescriptor build();
 
-    Builder publicMethod() {
+    abstract Builder returnType(TypeMirror returnTypeElement);
+
+    abstract Builder publicMethod(boolean publicMethod);
+
+    final Builder publicMethod() {
       return publicMethod(true);
     }
+
+    abstract Builder passedParameters(Iterable<Parameter> passedParameters);
+
+    abstract Builder isVarArgs(boolean isVarargs);
+
+    abstract Builder exceptions(Iterable<? extends TypeMirror> exceptions);
+
+    abstract ImplementationMethodDescriptor build();
   }
 }

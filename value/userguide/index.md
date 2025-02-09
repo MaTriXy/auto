@@ -1,7 +1,7 @@
 # AutoValue
 
 
-*Generated immutable value classes for Java 1.6+* <br />
+*Generated immutable value classes for Java 8+* <br />
 ***Éamonn McManus, Kevin Bourrillion*** <br />
 **Google, Inc.**
 
@@ -12,7 +12,6 @@
 > freer of bugs. Two thumbs up."
 >
 > -- *Joshua Bloch, author, Effective Java*
-
 
 ## <a name="background"></a>Background
 
@@ -31,6 +30,16 @@ harbor hard-to-spot bugs.
 AutoValue provides an easier way to create immutable value classes, with a lot
 less code and less room for error, while **not restricting your freedom** to
 code almost any aspect of your class exactly the way you want it.
+
+**Note**: If you are using Kotlin then its
+[data classes](https://kotlinlang.org/docs/data-classes.html) are usually more
+appropriate than AutoValue. Likewise, if you are using a version of Java that
+has [records](https://docs.oracle.com/en/java/javase/17/language/records.html),
+then those are usually more appropriate. For a detailed comparison of AutoValue
+and records, including information on how to migrate from one to the other, see
+[here](records.md).<br>
+You can still use [AutoBuilder](autobuilder.md) to make builders for data
+classes or records.
 
 This page will walk you through how to use AutoValue. Looking for a little more
 persuasion? Please see [Why AutoValue?](why.md).
@@ -56,7 +65,6 @@ import com.google.auto.value.AutoValue;
 @AutoValue
 abstract class Animal {
   static Animal create(String name, int numberOfLegs) {
-    // See "How do I...?" below for nested classes.
     return new AutoValue_Animal(name, numberOfLegs);
   }
 
@@ -65,39 +73,107 @@ abstract class Animal {
 }
 ```
 
+The constructor parameters correspond, in order, to the abstract accessor
+methods.
+
+**For a nested class**, see ["How do I use AutoValue with a nested class"](howto.md#nested).
+
 Note that in real life, some classes and methods would presumably be public and
 have Javadoc. We're leaving these off in the User Guide only to keep the
 examples short and simple.
 
-### In `pom.xml`
+### With Maven
 
-Maven users should add the following to the project's `pom.xml` file:
+You will need `auto-value-annotations-${auto-value.version}.jar` in your
+compile-time classpath, and you will need `auto-value-${auto-value.version}.jar`
+in your annotation-processor classpath.
+
+For `auto-value-annotations`, you can write this in `pom.xml`:
 
 ```xml
-<dependency>
-  <groupId>com.google.auto.value</groupId>
-  <artifactId>auto-value</artifactId>
-  <version>1.5</version>
-  <scope>provided</scope>
-</dependency>
+<dependencies>
+  <dependency>
+    <groupId>com.google.auto.value</groupId>
+    <artifactId>auto-value-annotations</artifactId>
+    <version>${auto-value.version}</version>
+  </dependency>
+</dependencies>
 ```
 
-Gradle users should install the annotation processing plugin [as described in
-these instructions][tbroyer-apt] and then use it in the `build.gradle` script:
+Some AutoValue annotations have CLASS retention. This is mostly of use for
+compile-time tools, such as AutoValue itself. If you are creating
+a library, the end user rarely needs to know the original AutoValue annotations.
+In that case, you can set the scope to `provided`, so that the user of your
+library does not have `auto-value-annotations` as a transitive dependency.
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>com.google.auto.value</groupId>
+    <artifactId>auto-value-annotations</artifactId>
+    <version>${auto-value.version}</version>
+    <scope>provided</scope>
+  </dependency>
+</dependencies>
+```
+
+For `auto-value` (the annotation processor), you can write this:
+
+```xml
+<build>
+  <plugins>
+    <plugin>
+      <artifactId>maven-compiler-plugin</artifactId>
+      <configuration>
+        <annotationProcessorPaths>
+          <path>
+            <groupId>com.google.auto.value</groupId>
+            <artifactId>auto-value</artifactId>
+            <version>${auto-value.version}</version>
+          </path>
+        </annotationProcessorPaths>
+      </configuration>
+    </plugin>
+  </plugins>
+</build>
+```
+
+Alternatively, you can include the processor itself in your compile-time
+classpath. Doing so may pull unnecessary classes into your runtime classpath.
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>com.google.auto.value</groupId>
+    <artifactId>auto-value</artifactId>
+    <version>${auto-value.version}</version>
+    <optional>true</optional>
+  </dependency>
+</dependencies>
+```
+
+### With Gradle
+
+Gradle users can declare the dependencies in their `build.gradle` script:
 
 ```groovy
 dependencies {
-  compileOnly "com.google.auto.value:auto-value:1.5"
-  apt         "com.google.auto.value:auto-value:1.5"
+  compileOnly         "com.google.auto.value:auto-value-annotations:${autoValueVersion}"
+  annotationProcessor "com.google.auto.value:auto-value:${autoValueVersion}"
 }
 ```
 
-[tbroyer-apt]: https://plugins.gradle.org/plugin/net.ltgt.apt
+Note: For java-library projects, use `compileOnlyApi` (or `api` for Gradle
+versions prior to 6.7) instead of `compileOnly`. For Android projects, use `api`
+instead of `compileOnly`. If you are using a version prior to 4.6, you must
+apply an annotation processing plugin
+[as described in these instructions][tbroyer-apt].
 
+[tbroyer-apt]: https://plugins.gradle.org/plugin/net.ltgt.apt
 
 ### <a name="usage"></a>Usage
 
-Your choice to use AutoValue is essentially *API-invisible*. That means that to
+Your choice to use AutoValue is essentially *API-invisible*. This means that, to
 the consumer of your class, your class looks and functions like any other. The
 simple test below illustrates that behavior. Note that in real life, you would
 write tests that actually *do something interesting* with the object, instead of
@@ -122,8 +198,8 @@ public void testAnimal() {
 
 AutoValue runs inside `javac` as a standard annotation processor. It reads your
 abstract class and infers what the implementation class should look like. It
-generates source code, in your package, of a concrete implementation class
-which extends your abstract class, having:
+generates source code, in your package, of a concrete implementation class which
+extends your abstract class, having:
 
 *   package visibility (non-public)
 *   one field for each of your abstract accessor methods
@@ -163,6 +239,10 @@ unordered collections like `HashSet`.
 
 See [Why AutoValue?](why.md).
 
+## <a name="versions"></a>What Java versions does it work with?
+
+AutoValue requires that your compiler be at least Java 8.
+
 ## <a name="more_howto"></a>How do I...
 
 How do I...
@@ -174,15 +254,15 @@ How do I...
 *   ... [perform other **validation**?](howto.md#validate)
 *   ... [use a property of a **mutable** type?](howto.md#mutable_property)
 *   ... [use a **custom** implementation of `equals`, etc.?](howto.md#custom)
-*   ... [**ignore** certain properties in `equals`, etc.?](howto.md#ignore)
-*   ... [have multiple **create** methods, or name it/them
+*   ... [have AutoValue implement a concrete or default
+    method?](howto.md#concrete)
+*   ... [have multiple **`create`** methods, or name it/them
     differently?](howto.md#create)
+*   ... [**ignore** certain properties in `equals`, etc.?](howto.md#ignore)
 *   ... [have AutoValue also implement abstract methods from my
     **supertypes**?](howto.md#supertypes)
 *   ... [use AutoValue with a **generic** class?](howto.md#generic)
-*   ... [make my class Java- or GWT- **serializable**?](howto.md#serialize)
-*   ... [apply an **annotation** to a generated
-    **field**?](howto.md#annotate_field)
+*   ... [make my class Java- or GWT\-**serializable**?](howto.md#serialize)
 *   ... [use AutoValue to **implement** an **annotation**
     type?](howto.md#annotation)
 *   ... [also include **setter** (mutator) methods?](howto.md#setters)
@@ -196,14 +276,13 @@ How do I...
     API?](howto.md#public_constructor)
 *   ... [use AutoValue on an **interface**, not abstract
     class?](howto.md#interface)
-*   ... [**memoize** derived properties?](howto.md#memoize)
+*   ... [**memoize** ("cache") derived properties?](howto.md#memoize)
+*   ... [memoize the result of `hashCode` or
+    `toString`?](howto.md#memoize_hash_tostring)
+*   ... [make a class where only one of its properties is ever
+    set?](howto.md#oneof)
+*   ... [copy annotations from a class/method to the implemented
+    class/method/field?](howto.md#copy_annotations)
+*   ... [create a **pretty string** representation?](howto.md#toprettystring)
 
 <!-- TODO(kevinb): should the above be only a selected subset? -->
-
-## <a name="more"></a>More information
-
-See the links in the sidebar at the top left.
-
-<!-- TODO(kevinb): there are some tidbits of information that don't seem to
-     belong anywhere yet; such as how it implements floating-point equality -->
-

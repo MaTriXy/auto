@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,39 +23,46 @@ import javax.inject.Provider;
  * @author Gregory Kick
  */
 @Generated(
-  value = "com.google.auto.factory.processor.AutoFactoryProcessor",
-  comments = "https://github.com/google/auto/tree/master/factory"
-)
+    value = "com.google.auto.factory.processor.AutoFactoryProcessor",
+    comments = "https://github.com/google/auto/tree/main/factory"
+    )
 final class MixedDepsImplementingInterfacesFactory
-    implements MixedDepsImplementingInterfaces.FromInt, MixedDepsImplementingInterfaces.FromObject,
-        MixedDepsImplementingInterfaces.MarkerA, MixedDepsImplementingInterfaces.MarkerB {
+    implements MixedDepsImplementingInterfaces.FromInt,
+        MixedDepsImplementingInterfaces.FromObject,
+        MixedDepsImplementingInterfaces.MarkerA,
+        MixedDepsImplementingInterfaces.MarkerB {
   private final Provider<String> sProvider;
 
-  @Inject MixedDepsImplementingInterfacesFactory(Provider<String> sProvider) {
-    this.sProvider = checkNotNull(sProvider, 1);
+  @Inject
+  MixedDepsImplementingInterfacesFactory(Provider<String> sProvider) {
+    this.sProvider = checkNotNull(sProvider, 1, 1);
   }
 
   MixedDepsImplementingInterfaces create(int i) {
-    return new MixedDepsImplementingInterfaces(checkNotNull(sProvider.get(), 1), i);
+    return new MixedDepsImplementingInterfaces(checkNotNull(sProvider.get(), 1, 2), i);
   }
 
   MixedDepsImplementingInterfaces create(Object o) {
-    return new MixedDepsImplementingInterfaces(checkNotNull(o, 1));
+    return new MixedDepsImplementingInterfaces(checkNotNull(o, 1, 1));
   }
 
-  @Override public MixedDepsImplementingInterfaces fromInt(int i) {
+  @Override
+  public MixedDepsImplementingInterfaces fromInt(int i) {
     return create(i);
   }
 
-  @Override public MixedDepsImplementingInterfaces fromObject(Object o) {
+  @Override
+  public MixedDepsImplementingInterfaces fromObject(Object o) {
     return create(o);
   }
 
-  private static <T> T checkNotNull(T reference, int argumentIndex) {
+  private static <T> T checkNotNull(T reference, int argumentNumber, int argumentCount) {
     if (reference == null) {
       throw new NullPointerException(
-          "@AutoFactory method argument is null but is not marked @Nullable. Argument index: "
-              + argumentIndex);
+          "@AutoFactory method argument is null but is not marked @Nullable. Argument "
+              + argumentNumber
+              + " of "
+              + argumentCount);
     }
     return reference;
   }

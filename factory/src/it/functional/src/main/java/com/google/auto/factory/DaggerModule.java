@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,29 +15,45 @@
  */
 package com.google.auto.factory;
 
+import com.google.auto.factory.otherpackage.OtherPackage;
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 
 @Module
-final class DaggerModule {
-  @Provides Dependency provideDependency(DependencyImpl impl) {
-    return impl;
-  }
+abstract class DaggerModule {
+  private DaggerModule() {} // no instances
 
-  @Provides
+  @Binds
+  abstract Dependency provideDependency(DependencyImpl impl);
+
+  @Binds
   @Qualifier
-  Dependency provideQualifiedDependency(QualifiedDependencyImpl impl) {
-    return impl;
-  }
+  abstract Dependency provideQualifiedDependency(QualifiedDependencyImpl impl);
 
   @Provides
-  int providePrimitive() {
+  static int providePrimitive() {
     return 1;
   }
 
   @Provides
   @Qualifier
-  int provideQualifiedPrimitive() {
+  static int provideQualifiedPrimitive() {
     return 2;
+  }
+
+  @Provides
+  static Number provideNumber() {
+    return 3;
+  }
+
+  @Provides
+  static ReferencePackage provideReferencePackage(ReferencePackageFactory factory) {
+    return factory.create(17);
+  }
+
+  @Provides
+  static OtherPackage provideOtherPackage() {
+    return new OtherPackage(null, 23);
   }
 }

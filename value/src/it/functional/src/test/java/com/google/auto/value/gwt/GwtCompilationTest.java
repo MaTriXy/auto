@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Google Inc.
+ * Copyright 2014 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,14 +34,14 @@ import org.junit.runners.JUnit4;
  */
 @RunWith(JUnit4.class)
 public class GwtCompilationTest {
-  private static final JavaFileObject GWT_COMPATIBLE = JavaFileObjects.forSourceLines(
-      "com.google.annotations.GwtCompatible",
-      "package com.google.annotations;",
-      "",
-      "public @interface GwtCompatible {",
-      "  boolean serializable() default false;",
-      "}"
-  );
+  private static final JavaFileObject GWT_COMPATIBLE =
+      JavaFileObjects.forSourceLines(
+          "com.google.annotations.GwtCompatible",
+          "package com.google.annotations;",
+          "",
+          "public @interface GwtCompatible {",
+          "  boolean serializable() default false;",
+          "}");
 
   /**
    * Test where the serialized properties don't include generics, so no {@code @SuppressWarnings}
@@ -50,22 +50,23 @@ public class GwtCompilationTest {
    */
   @Test
   public void testBasic() {
-    JavaFileObject javaFileObject = JavaFileObjects.forSourceLines(
-        "foo.bar.Baz",
-        "package foo.bar;",
-        "",
-        "import com.google.auto.value.AutoValue;",
-        "import com.google.annotations.GwtCompatible;",
-        "",
-        "@AutoValue",
-        "@GwtCompatible(serializable = true)",
-        "public abstract class Baz {",
-        "  public abstract int buh();",
-        "",
-        "  public static Baz create(int buh) {",
-        "    return new AutoValue_Baz(buh);",
-        "  }",
-        "}");
+    JavaFileObject javaFileObject =
+        JavaFileObjects.forSourceLines(
+            "foo.bar.Baz",
+            "package foo.bar;",
+            "",
+            "import com.google.auto.value.AutoValue;",
+            "import com.google.annotations.GwtCompatible;",
+            "",
+            "@AutoValue",
+            "@GwtCompatible(serializable = true)",
+            "public abstract class Baz {",
+            "  public abstract int buh();",
+            "",
+            "  public static Baz create(int buh) {",
+            "    return new AutoValue_Baz(buh);",
+            "  }",
+            "}");
     JavaFileObject expectedOutput =
         JavaFileObjects.forSourceLines(
             "foo.bar.AutoValue_Baz_CustomFieldSerializer",
@@ -127,12 +128,11 @@ public class GwtCompilationTest {
             "}");
     Compilation compilation =
         javac().withProcessors(new AutoValueProcessor()).compile(javaFileObject, GWT_COMPATIBLE);
-    assertThat(compilation)
-        .succeededWithoutWarnings();
+    assertThat(compilation).succeededWithoutWarnings();
     assertThat(compilation)
         .generatedSourceFile("foo.bar.AutoValue_Baz_CustomFieldSerializer")
         .hasSourceEquivalentTo(expectedOutput);
-}
+  }
 
   /**
    * Test where the serialized properties don't include generics, so a {@code @SuppressWarnings}
@@ -140,24 +140,25 @@ public class GwtCompilationTest {
    */
   @Test
   public void testSuppressWarnings() {
-    JavaFileObject javaFileObject = JavaFileObjects.forSourceLines(
-        "foo.bar.Baz",
-        "package foo.bar;",
-        "",
-        "import com.google.auto.value.AutoValue;",
-        "import com.google.annotations.GwtCompatible;",
-        "",
-        "import java.util.List;",
-        "",
-        "@AutoValue",
-        "@GwtCompatible(serializable = true)",
-        "public abstract class Baz {",
-        "  public abstract List<String> buh();",
-        "",
-        "  public static Baz create(List<String> buh) {",
-        "    return new AutoValue_Baz(buh);",
-        "  }",
-        "}");
+    JavaFileObject javaFileObject =
+        JavaFileObjects.forSourceLines(
+            "foo.bar.Baz",
+            "package foo.bar;",
+            "",
+            "import com.google.auto.value.AutoValue;",
+            "import com.google.annotations.GwtCompatible;",
+            "",
+            "import java.util.List;",
+            "",
+            "@AutoValue",
+            "@GwtCompatible(serializable = true)",
+            "public abstract class Baz {",
+            "  public abstract List<String> buh();",
+            "",
+            "  public static Baz create(List<String> buh) {",
+            "    return new AutoValue_Baz(buh);",
+            "  }",
+            "}");
     JavaFileObject expectedOutput =
         JavaFileObjects.forSourceLines(
             "foo.bar.AutoValue_Baz_CustomFieldSerializer",
@@ -221,8 +222,7 @@ public class GwtCompilationTest {
             "}");
     Compilation compilation =
         javac().withProcessors(new AutoValueProcessor()).compile(javaFileObject, GWT_COMPATIBLE);
-    assertThat(compilation)
-        .succeededWithoutWarnings();
+    assertThat(compilation).succeededWithoutWarnings();
     assertThat(compilation)
         .generatedSourceFile("foo.bar.AutoValue_Baz_CustomFieldSerializer")
         .hasSourceEquivalentTo(expectedOutput);
@@ -234,35 +234,39 @@ public class GwtCompilationTest {
    */
   @Test
   public void testBuildersAndGenerics() {
-    JavaFileObject javaFileObject = JavaFileObjects.forSourceLines(
-        "foo.bar.Baz",
-        "package foo.bar;",
-        "",
-        "import com.google.auto.value.AutoValue;",
-        "import com.google.annotations.GwtCompatible;",
-        "",
-        "import java.util.Map;",
-        "",
-        "@AutoValue",
-        "@GwtCompatible(serializable = true)",
-        "public abstract class Baz<K extends Comparable<K>, V extends K> {",
-        "  public abstract Map<K, V> map();",
-        "",
-        "  public static <K extends Comparable<K>, V extends K> Builder<K, V> builder() {",
-        "    return new AutoValue_Baz.Builder<K, V>();",
-        "  }",
-        "",
-        "  @AutoValue.Builder",
-        "  public interface Builder<K extends Comparable<K>, V extends K> {",
-        "    Builder<K, V> map(Map<K, V> map);",
-        "    Baz<K, V> build();",
-        "  }",
-        "}");
+    JavaFileObject javaFileObject =
+        JavaFileObjects.forSourceLines(
+            "foo.bar.Baz",
+            "package foo.bar;",
+            "",
+            "import com.google.auto.value.AutoValue;",
+            "import com.google.annotations.GwtCompatible;",
+            "import com.google.common.collect.ImmutableMap;",
+            "import java.util.Map;",
+            "",
+            "@AutoValue",
+            "@GwtCompatible(serializable = true)",
+            "public abstract class Baz<K extends Comparable<K>, V extends K> {",
+            "  public abstract Map<K, V> map();",
+            "  public abstract ImmutableMap<K, V> immutableMap();",
+            "",
+            "  public static <K extends Comparable<K>, V extends K> Builder<K, V> builder() {",
+            "    return new AutoValue_Baz.Builder<K, V>();",
+            "  }",
+            "",
+            "  @AutoValue.Builder",
+            "  public interface Builder<K extends Comparable<K>, V extends K> {",
+            "    Builder<K, V> map(Map<K, V> map);",
+            "    ImmutableMap.Builder<K, V> immutableMapBuilder();",
+            "    Baz<K, V> build();",
+            "  }",
+            "}");
     JavaFileObject expectedOutput =
         JavaFileObjects.forSourceLines(
             "foo.bar.AutoValue_Baz_CustomFieldSerializer",
             "package foo.bar;",
             "",
+            "import com.google.common.collect.ImmutableMap;",
             "import com.google.gwt.user.client.rpc.CustomFieldSerializer;",
             "import com.google.gwt.user.client.rpc.SerializationException;",
             "import com.google.gwt.user.client.rpc.SerializationStreamReader;",
@@ -275,19 +279,24 @@ public class GwtCompilationTest {
                 + "<K extends Comparable<K>, V extends K>"
                 + " extends CustomFieldSerializer<AutoValue_Baz<K, V>> {",
             "",
-            "  public static <K extends Comparable<K>, V extends K> AutoValue_Baz<K, V> instantiate(",
+            "  public static <K extends Comparable<K>, V extends K> AutoValue_Baz<K, V>"
+                + " instantiate(",
             "      SerializationStreamReader streamReader) throws SerializationException {",
             "    @SuppressWarnings(\"unchecked\")",
             "    Map<K, V> map = (Map<K, V>) streamReader.readObject();",
-            "    return (AutoValue_Baz<K, V>) new AutoValue_Baz.Builder<K, V>()",
-            "        .map(map)",
-            "        .build();",
+            "    @SuppressWarnings(\"unchecked\")",
+            "    ImmutableMap<K, V> immutableMap = (ImmutableMap<K, V>) streamReader.readObject();",
+            "    AutoValue_Baz.Builder<K, V> builder$ = new AutoValue_Baz.Builder<K, V>();",
+            "    builder$.map(map);",
+            "    builder$.immutableMapBuilder().putAll(immutableMap);",
+            "    return (AutoValue_Baz<K, V>) builder$.build();",
             "  }",
             "",
             "  public static <K extends Comparable<K>, V extends K> void serialize(",
             "      SerializationStreamWriter streamWriter,",
             "      AutoValue_Baz<K, V> instance) throws SerializationException {",
             "    streamWriter.writeObject(instance.map());",
+            "    streamWriter.writeObject(instance.immutableMap());",
             "  }",
             "",
             "  public static <K extends Comparable<K>, V extends K> void deserialize(",
@@ -296,7 +305,7 @@ public class GwtCompilationTest {
             "  }",
             "",
             "  @SuppressWarnings(\"unused\")",
-            "  private int dummy_bd425a02;",
+            "  private int dummy_2865d9ec;",
             "",
             "  @Override",
             "  public void deserializeInstance(",
@@ -325,8 +334,7 @@ public class GwtCompilationTest {
             "}");
     Compilation compilation =
         javac().withProcessors(new AutoValueProcessor()).compile(javaFileObject, GWT_COMPATIBLE);
-    assertThat(compilation)
-        .succeededWithoutWarnings();
+    assertThat(compilation).succeededWithoutWarnings();
     assertThat(compilation)
         .generatedSourceFile("foo.bar.AutoValue_Baz_CustomFieldSerializer")
         .hasSourceEquivalentTo(expectedOutput);

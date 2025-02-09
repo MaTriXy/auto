@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Google, Inc.
+ * Copyright 2012 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ import static java.util.stream.Collectors.toCollection;
 import static javax.lang.model.element.Modifier.PRIVATE;
 
 import com.google.auto.common.MoreElements;
+import com.google.auto.common.MoreTypes;
+import com.google.auto.value.processor.MissingTypes.MissingTypeException;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,6 +38,7 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
+import javax.lang.model.type.TypeVisitor;
 import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.ElementFilter;
 import javax.lang.model.util.Elements;
@@ -78,9 +81,8 @@ final class TypeSimplifier {
    * @param base a base class that the class containing the references will extend. This is needed
    *     because nested classes in that class or one of its ancestors are in scope in the generated
    *     subclass, so a reference to another class with the same name as one of them is ambiguous.
-   *
-   * @throws MissingTypeException if one of the input types contains an error (typically,
-   *     is undefined).
+   * @throws MissingTypeException if one of the input types contains an error (typically, is
+   *     undefined).
    */
   TypeSimplifier(
       Elements elementUtils,
@@ -144,9 +146,7 @@ final class TypeSimplifier {
     }
   }
 
-  /**
-   * Returns the name of the given type, including any enclosing types but not the package.
-   */
+  /** Returns the name of the given type, including any enclosing types but not the package. */
   static String classNameOf(TypeElement type) {
     String name = type.getQualifiedName().toString();
     String pkgName = packageNameOf(type);
@@ -182,11 +182,11 @@ final class TypeSimplifier {
    *
    * <p>This method operates on a {@code Set<TypeMirror>} rather than just a {@code Set<String>}
    * because it is not strictly possible to determine what part of a fully-qualified type name is
-   * the package and what part is the top-level class. For example, {@code java.util.Map.Entry} is
-   * a class called {@code Map.Entry} in a package called {@code java.util} assuming Java
-   * conventions are being followed, but it could theoretically also be a class called {@code Entry}
-   * in a package called {@code java.util.Map}. Since we are operating as part of the compiler, our
-   * goal should be complete correctness, and the only way to achieve that is to operate on the real
+   * the package and what part is the top-level class. For example, {@code java.util.Map.Entry} is a
+   * class called {@code Map.Entry} in a package called {@code java.util} assuming Java conventions
+   * are being followed, but it could theoretically also be a class called {@code Entry} in a
+   * package called {@code java.util.Map}. Since we are operating as part of the compiler, our goal
+   * should be complete correctness, and the only way to achieve that is to operate on the real
    * representations of types.
    *
    * @param codePackageName The name of the package where the class containing these references is
@@ -194,8 +194,8 @@ final class TypeSimplifier {
    * @param referenced The complete set of declared types (classes and interfaces) that will be
    *     referenced in the generated code.
    * @param defined The complete set of declared types (classes and interfaces) that are defined
-   *     within the scope of the generated class (i.e. nested somewhere in its superclass chain,
-   *     or in its interface set)
+   *     within the scope of the generated class (i.e. nested somewhere in its superclass chain, or
+   *     in its interface set)
    * @return a map where the keys are fully-qualified types and the corresponding values indicate
    *     whether the type should be imported, and how the type should be spelled in the source code.
    */
@@ -298,7 +298,7 @@ final class TypeSimplifier {
     Map<String, Name> simpleNamesToQualifiedNames = new HashMap<>();
     for (TypeMirror type : types) {
       if (type.getKind() == TypeKind.ERROR) {
-        throw new MissingTypeException();
+        throw new MissingTypeException(MoreTypes.asError(type));
       }
       String simpleName = typeUtils.asElement(type).getSimpleName().toString();
       /*
@@ -316,64 +316,60 @@ final class TypeSimplifier {
   }
 
   /**
-   * Returns true if casting to the given type will elicit an unchecked warning from the
-   * compiler. Only generic types such as {@code List<String>} produce such warnings. There will be
-   * no warning if the type's only generic parameters are simple wildcards, as in {@code Map<?, ?>}.
+   * Returns true if casting to the given type will elicit an unchecked warning from the compiler.
+   * Only generic types such as {@code List<String>} produce such warnings. There will be no warning
+   * if the type's only generic parameters are simple wildcards, as in {@code Map<?, ?>}.
    */
   static boolean isCastingUnchecked(TypeMirror type) {
-    return new CastingUncheckedVisitor().visit(type, false);
+    return CASTING_UNCHECKED_VISITOR.visit(type, null);
   }
 
-  /**
-   * Visitor that tells whether a type is erased, in the sense of {@link #isCastingUnchecked}. Each
-   * visitX method returns true if its input parameter is true or if the type being visited is
-   * erased.
-   */
-  private static class CastingUncheckedVisitor extends SimpleTypeVisitor8<Boolean, Boolean> {
-    @Override protected Boolean defaultAction(TypeMirror e, Boolean p) {
-      return p;
-    }
-
-    @Override public Boolean visitUnknown(TypeMirror t, Boolean p) {
-      // We don't know whether casting is unchecked for this mysterious type but assume it is,
-      // so we will insert a possible-unnecessary @SuppressWarnings("unchecked").
-      return true;
-    }
-
-    @Override public Boolean visitArray(ArrayType t, Boolean p) {
-      return visit(t.getComponentType(), p);
-    }
-
-    @Override public Boolean visitDeclared(DeclaredType t, Boolean p) {
-      return p || t.getTypeArguments().stream().anyMatch(this::uncheckedTypeArgument);
-    }
-
-    @Override public Boolean visitTypeVariable(TypeVariable t, Boolean p) {
-      return true;
-    }
-
-    // If a type has a type argument, then casting to the type is unchecked, except if the argument
-    // is <?> or <? extends Object>. The same applies to all type arguments, so casting to Map<?, ?>
-    // does not produce an unchecked warning for example.
-    private boolean uncheckedTypeArgument(TypeMirror arg) {
-      if (arg.getKind() == TypeKind.WILDCARD) {
-        WildcardType wildcard = (WildcardType) arg;
-        if (wildcard.getExtendsBound() == null || isJavaLangObject(wildcard.getExtendsBound())) {
-          // This is <?>, unless there's a super bound, in which case it is <? super Foo> and
-          // is erased.
-          return (wildcard.getSuperBound() != null);
+  private static final TypeVisitor<Boolean, Void> CASTING_UNCHECKED_VISITOR =
+      new SimpleTypeVisitor8<Boolean, Void>(false) {
+        @Override
+        public Boolean visitUnknown(TypeMirror t, Void p) {
+          // We don't know whether casting is unchecked for this mysterious type but assume it is,
+          // so we will insert a possibly unnecessary @SuppressWarnings("unchecked").
+          return true;
         }
-      }
-      return true;
-    };
 
-    private static boolean isJavaLangObject(TypeMirror type) {
-      if (type.getKind() != TypeKind.DECLARED) {
-        return false;
+        @Override
+        public Boolean visitArray(ArrayType t, Void p) {
+          return visit(t.getComponentType(), p);
+        }
+
+        @Override
+        public Boolean visitDeclared(DeclaredType t, Void p) {
+          return t.getTypeArguments().stream().anyMatch(TypeSimplifier::uncheckedTypeArgument);
+        }
+
+        @Override
+        public Boolean visitTypeVariable(TypeVariable t, Void p) {
+          return true;
+        }
+      };
+
+  // If a type has a type argument, then casting to the type is unchecked, except if the argument
+  // is <?> or <? extends Object>. The same applies to all type arguments, so casting to Map<?, ?>
+  // does not produce an unchecked warning for example.
+  private static boolean uncheckedTypeArgument(TypeMirror arg) {
+    if (arg.getKind() == TypeKind.WILDCARD) {
+      WildcardType wildcard = (WildcardType) arg;
+      if (wildcard.getExtendsBound() == null || isJavaLangObject(wildcard.getExtendsBound())) {
+        // This is <?>, unless there's a super bound, in which case it is <? super Foo> and
+        // is erased.
+        return (wildcard.getSuperBound() != null);
       }
-      DeclaredType declaredType = (DeclaredType) type;
-      TypeElement typeElement = (TypeElement) declaredType.asElement();
-      return typeElement.getQualifiedName().contentEquals("java.lang.Object");
     }
-  };
+    return true;
+  }
+
+  private static boolean isJavaLangObject(TypeMirror type) {
+    if (type.getKind() != TypeKind.DECLARED) {
+      return false;
+    }
+    DeclaredType declaredType = (DeclaredType) type;
+    TypeElement typeElement = (TypeElement) declaredType.asElement();
+    return typeElement.getQualifiedName().contentEquals("java.lang.Object");
+  }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc.
+ * Copyright 2013 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,17 @@ import com.google.auto.factory.AutoFactory;
 import com.google.auto.factory.Provided;
 
 final class ConstructorAnnotatedNonFinal {
-  @AutoFactory(allowSubclasses = true) ConstructorAnnotatedNonFinal() {}
+  @AutoFactory(allowSubclasses = true)
+  ConstructorAnnotatedNonFinal() {}
+
   ConstructorAnnotatedNonFinal(Object obj) {}
-  @AutoFactory(allowSubclasses = true) ConstructorAnnotatedNonFinal(String s) {}
-  @AutoFactory(allowSubclasses = true) ConstructorAnnotatedNonFinal(@Provided Object obj, int i) {}
-  @AutoFactory(allowSubclasses = true) ConstructorAnnotatedNonFinal(@Provided Object obj, char c) {}
+
+  @AutoFactory(allowSubclasses = true)
+  ConstructorAnnotatedNonFinal(String s) {}
+
+  @AutoFactory(allowSubclasses = true)
+  ConstructorAnnotatedNonFinal(@Provided Object obj, int i) {}
+
+  @AutoFactory(allowSubclasses = true)
+  ConstructorAnnotatedNonFinal(@Provided Object obj, char c) {}
 }

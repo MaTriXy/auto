@@ -28,10 +28,14 @@ How do I...
     *   ... [let my builder **accumulate** values for a collection-valued
         property (not require them all at once)?](#accumulate)
     *   ... [accumulate values for a collection-valued property, without
-        **breaking the chain**?](#add)
+        **"breaking the chain"**?](#add)
     *   ... [offer **both** accumulation and set-at-once methods for the same
         collection-valued property?](#collection_both)
 *   ... [access nested builders while building?](#nested_builders)
+*   ... [create a "step builder"?](#step)
+*   ... [create a builder for something other than an `@AutoValue`?](#autobuilder)
+*   ... [use a different build method for a
+    property?](#build_method)
 
 ## <a name="beans"></a>... use (or not use) `set` prefixes?
 
@@ -79,10 +83,13 @@ it will simply default to `null` as you would expect. And if it is
 [Optional](#optional) it will default to an empty `Optional` as you might also
 expect. But if it isn't either of those things (including if it is a
 primitive-valued property, which *can't* be null), then `build()` will throw an
-unchecked exception.
+unchecked exception. This includes collection properties, which must be given a
+value. They don't default to empty unless there is a
+[collection builder](#accumulate).
 
-But this presents a problem, since one of the main *advantages* of a builder in
-the first place is that callers can specify only the properties they care about!
+But this requirement to supply a value presents a problem, since one of the main
+*advantages* of a builder in the first place is that callers can specify only
+the properties they care about!
 
 The solution is to provide a default value for such properties. Fortunately this
 is easy: just set it on the newly-constructed builder instance before returning
@@ -110,9 +117,9 @@ abstract class Animal {
 }
 ```
 
-Occasionally you may want to supply a default value, but only if the property is
-not set explicitly. This is covered in the section on
-[normalization](#normalize).
+Occasionally you may want to supply a more complex default value, possibly
+derived from other fields and only if the property is not set explicitly. This
+is covered in the section on [normalization](#normalize).
 
 ## <a name="to_builder"></a>... initialize a builder to the same property values as an existing value instance
 
@@ -149,7 +156,7 @@ public abstract class Animal {
 
   abstract Builder toBuilder();
 
-  public Animal withName(String name) {
+  public final Animal withName(String name) {
     return toBuilder().setName(name).build();
   }
 
@@ -196,7 +203,7 @@ public abstract class Animal {
 
     abstract Animal autoBuild();  // not public
 
-    public Animal build() {
+    public final Animal build() {
       Animal animal = autoBuild();
       Preconditions.checkState(animal.numberOfLegs() >= 0, "Negative legs");
       return animal;
@@ -230,7 +237,7 @@ public abstract class Animal {
 
     abstract Animal autoBuild(); // not public
 
-    public Animal build() {
+    public final Animal build() {
       setName(name().toLowerCase());
       return autoBuild();
     }
@@ -246,13 +253,13 @@ non-[nullable](howto.md#nullable) property, `IllegalStateException` is thrown.
 Getters should generally only be used within the `Builder` as shown, so they are
 not public.
 
-As an alternative to returning the same type as the property accessor method,
-the builder getter can return an Optional wrapping of that type. This can be
-used if you want to supply a default, but only if the property has not been set.
-(The [usual way](#default) of supplying defaults means that the property always
-appears to have been set.) For example, suppose you wanted the default name of
-your Animal to be something like "4-legged creature", where 4 is the
-`numberOfLegs()` property. You might write this:
+<p id="optional-getter">As an alternative to returning the same type as the
+property accessor method, the builder getter can return an Optional wrapping of
+that type. This can be used if you want to supply a default, but only if the
+property has not been set. (The [usual way](#default) of supplying defaults
+means that the property always appears to have been set.) For example, suppose
+you wanted the default name of your Animal to be something like "4-legged
+creature", where 4 is the `numberOfLegs()` property. You might write this:
 
 ```java
 @AutoValue
@@ -274,8 +281,8 @@ public abstract class Animal {
 
     abstract Animal autoBuild(); // not public
 
-    public Animal build() {
-      if (!name().isPresent()) {
+    public final Animal build() {
+      if (name().isEmpty()) {
         setName(numberOfLegs() + "-legged creature");
       }
       return autoBuild();
@@ -306,7 +313,8 @@ property of type `Optional<String>`, say, then it will default to an empty
 `Optional` without needing to [specify](#default) a default explicitly. And,
 instead of or as well as the normal `setFoo(Optional<String>)` method, you can
 have `setFoo(String)`. Then `setFoo(s)` is equivalent to
-`setFoo(Optional.of(s))`.
+`setFoo(Optional.of(s))`. (If it is `setFoo(@Nullable String)`, then `setFoo(s)`
+is equivalent to `setFoo(Optional.ofNullable(s))`.)
 
 Here, `Optional` means either [`java.util.Optional`] from Java (Java 8 or
 later), or [`com.google.common.base.Optional`] from Guava. Java 8 also
@@ -335,7 +343,7 @@ public abstract class Animal {
 ```
 
 [`java.util.Optional`]: https://docs.oracle.com/javase/8/docs/api/java/util/Optional.html
-[`com.google.common.base.Optional`]: http://google.github.io/guava/releases/snapshot/api/docs/com/google/common/base/Optional.html
+[`com.google.common.base.Optional`]: https://guava.dev/releases/snapshot/api/docs/com/google/common/base/Optional.html
 [`OptionalDouble`]: https://docs.oracle.com/javase/8/docs/api/java/util/OptionalDouble.html
 [`OptionalInt`]: https://docs.oracle.com/javase/8/docs/api/java/util/OptionalInt.html
 [`OptionalLong`]: https://docs.oracle.com/javase/8/docs/api/java/util/OptionalLong.html
@@ -414,7 +422,27 @@ public abstract class Animal {
 }
 ```
 
-You may notice a small problem with this example: the caller can no longer
+The name of this method must be exactly the property name (`countries` here)
+followed by the string `Builder`. Even if the properties follow the
+`getCountries()` convention, the builder method must be `countriesBuilder()`
+and not `getCountriesBuilder()`.
+
+It's also possible to have a method like `countriesBuilder` with a single
+argument, provided that the `Builder` class has a public constructor or a
+static `builder` method, with one parameter that the argument can be assigned
+to. For example, if `countries()` were an `ImmutableSortedSet<String>` and you
+wanted to supply a `Comparator` to `ImmutableSortedSet.Builder`, you could
+write:
+
+```java
+    public abstract ImmutableSortedSet.Builder<String>
+        countriesBuilder(Comparator<String> comparator);
+```
+
+That works because `ImmutableSortedSet.Builder` has a constructor that
+accepts a `Comparator` parameter.
+
+You may notice a small problem with these examples: the caller can no longer
 create their instance in a single chained statement:
 
 ```java
@@ -445,8 +473,8 @@ One solution for this problem is just below.
 
 ### <a name="add"></a>... accumulate values for a collection-valued property, without "breaking the chain"?
 
-Another option is to keep `countriesBuilder()` itself non-public, only use it to
-implement a public `addCountry` method:
+Another option is to keep `countriesBuilder()` itself non-public, and only use
+it to implement a public `addCountry` method:
 
 ```java
 @AutoValue
@@ -465,7 +493,7 @@ public abstract class Animal {
     public abstract Builder setNumberOfLegs(int value);
 
     abstract ImmutableSet.Builder<String> countriesBuilder();
-    public Builder addCountry(String value) {
+    public final Builder addCountry(String value) {
       countriesBuilder().add(value);
       return this;
     }
@@ -489,8 +517,14 @@ Now the caller can do this:
 
 ### <a name="collection_both"></a>... offer both accumulation and set-at-once methods for the same collection-valued property?
 
-You can have both. If the caller uses `setFoos` after `foosBuilder` has been
-called, an unchecked exception will be thrown.
+Yes, you can provide both methods, letting your caller choose the style they
+prefer.
+
+The same caller can mix the two styles only in limited ways; once `foosBuilder`
+has been called, any subsequent call to `setFoos` will throw an unchecked
+exception. On the other hand, calling `setFoos` first is okay; a later call to
+`foosBuilder` will return a builder already populated with the
+previously-supplied elements.
 
 ## <a name="nested_builders"></a>... access nested builders while building?
 
@@ -567,6 +601,19 @@ requirements are:
   if there is an abstract `setSpecies` method in addition to the
   `speciesBuilder` method.
 
+  As an alternative to having a method `Species.Builder toBuilder()` in
+  `Species`, `Species.Builder` can have a method called `addAll` or `putAll`
+  that accepts an argument of type `Species`. This is how AutoValue handles
+  `ImmutableSet` for example. `ImmutableSet` does not have a `toBuilder()`
+  method, but `ImmutableSet.Builder` does have an `addAll` method that accepts
+  an `ImmutableSet`. So given `ImmutableSet<String> strings`, we can achieve the
+  effect of `strings.toBuilder()` by doing:
+
+  ```
+  ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+  builder.addAll(strings);
+  ```
+
 There are no requirements on the name of the builder class. Instead of
 `Species.Builder`, it could be `Species.Factory` or `SpeciesBuilder`.
 
@@ -574,5 +621,146 @@ If `speciesBuilder()` is never called then the final `species()` property will
 be set as if by `speciesBuilder().build()`. In the example, that would result
 in an exception because the required properties of `Species` have not been set.
 
+## <a name="step"></a>... create a "step builder"?
+
+A [_step builder_](http://rdafbn.blogspot.com/2012/07/step-builder-pattern_28.html)
+is a collection of builder interfaces that take you step by step through the
+setting of each of a list of required properties. This means you can be sure at
+compile time that all the properties are set before you build, at the expense of
+some extra code and a bit less flexibility.
+
+Here is an example:
+
+```java
+@AutoValue
+public abstract class Stepped {
+  public abstract String foo();
+  public abstract String bar();
+  public abstract int baz();
+
+  public static FooStep builder() {
+    return new AutoValue_Stepped.Builder();
+  }
+
+  public interface FooStep {
+    BarStep setFoo(String foo);
+  }
+
+  public interface BarStep {
+    BazStep setBar(String bar);
+  }
+
+  public interface BazStep {
+    Build setBaz(int baz);
+  }
+
+  public interface Build {
+    Stepped build();
+  }
+
+  @AutoValue.Builder
+  abstract static class Builder implements FooStep, BarStep, BazStep, Build {}
+}
+```
+
+It might be used like this:
+
+```java
+Stepped stepped = Stepped.builder().setFoo("foo").setBar("bar").setBaz(3).build();
+```
+
+The idea is that the only way to build an instance of `Stepped`
+is to go through the steps imposed by the `FooStep`, `BarStep`, and
+`BazStep` interfaces to set the properties in order, with a final build step.
+
+Once you have set the `baz` property there is nothing else to do except build,
+so you could also combine the `setBaz` and `build` methods like this:
+
+```java
+  ...
+
+  public interface BazStep {
+    Stepped setBazAndBuild(int baz);
+  }
+
+  @AutoValue.Builder
+  abstract static class Builder implements FooStep, BarStep, BazStep {
+    abstract Builder setBaz(int baz);
+    abstract Stepped build();
+
+    @Override
+    public Stepped setBazAndBuild(int baz) {
+      return setBaz(baz).build();
+    }
+  }
+```
+
+## <a name="autobuilder"></a> ... create a builder for something other than an `@AutoValue`?
+
+Sometimes you want to make a builder like the kind described here, but have it
+build something other than an `@AutoValue` class, or even call a static method.
+In that case you can use `@AutoBuilder`. See
+[its documentation](autobuilder.md).
+
+Sometimes you want to use a different build method for your property. This is
+especially applicable for `ImmutableMap`, which has two different build methods.
+`builder.buildOrThrow()` is used as the default build method for AutoValue. You
+might prefer to use `builder.buildKeepingLast()` instead, so if the same key is
+put more than once then the last value is retained rather than throwing an
+exception. AutoValue doesn't currently have a way to request this, but here is a
+workaround if you need it. Let's say you have a class like this:
+
+```java
+  @AutoValue
+  public abstract class Foo {
+    public abstract ImmutableMap<Integer, String> map();
+    ...
+
+    @AutoValue.Builder
+    public abstract static class Builder {
+      public abstract ImmutableMap.Builder<Integer, String> mapBuilder();
+      public abstract Foo build();
+    }
+  }
+```
+
+Instead, you could write this:
+
+```java
+  @AutoValue
+  public abstract class Foo {
+    public abstract ImmutableMap<Integer, String> map();
+    
+    // #start
+    // Needed only if your class has toBuilder() method
+    public Builder toBuilder() {
+      Builder builder = autoToBuilder();
+      builder.mapBuilder().putAll(map());
+      return builder;
+    }
+
+    abstract Builder autoToBuilder(); // not public
+    // #end
+
+    @AutoValue.Builder
+    public abstract static class Builder {
+
+      private final ImmutableMap.Builder<Integer, String> mapBuilder = ImmutableMap.builder();
+
+      public ImmutableMap.Builder<Integer, String> mapBuilder() {
+        return mapBuilder;
+      }
+
+      abstract Builder setMap(ImmutableMap<Integer, String> map); // not public
+
+      abstract Foo autoBuild(); // not public
+
+      public Foo build() {
+        setMap(mapBuilder.buildKeepingLast());
+        return autoBuild();
+      }
+    }
+  }
+```
 
 [protobuf]: https://developers.google.com/protocol-buffers/docs/reference/java-generated#builders
